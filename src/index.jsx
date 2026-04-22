@@ -1,0 +1,319 @@
+import React, { useState, useEffect } from 'react';
+
+const API_URL = 'https://weekend-manager-backend.onrender.com/api';
+
+export default function WeekendManager() {
+  const [token, setToken] = useState(localStorage.getItem('weekendToken') || null);
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  
+  const [activeTab, setActiveTab] = useState('intro');
+  const [guests, setGuests] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '', attending: true, adults: 2, boys: 0, girls: 0,
+    nightSatSun: false, nightSunMon: false,
+    mealSatMid: false, mealSatEvn: false, mealSunMid: false, mealSunEvn: false, mealMonMid: false
+  });
+
+  const rooms = [
+    { id: 1, name: 'Chambre Tante Madie', capacity: 4 },
+    { id: 2, name: 'Chambre Tonton Paul', capacity: 4 },
+    { id: 3, name: 'Chambre Parc Rouge', capacity: 3 },
+    { id: 4, name: 'Chambre Parc Vert', capacity: 3 },
+    { id: 5, name: 'Chambre Arriere Rouge', capacity: 2 },
+    { id: 6, name: 'Chambre Arriere Vert', capacity: 2 },
+    { id: 7, name: 'Dortoir filles', capacity: 5 },
+    { id: 8, name: 'Dortoir garcons', capacity: 5 },
+    { id: 9, name: 'Cellule', capacity: 1 },
+    { id: 10, name: 'Hors de la maison', capacity: 999 }
+  ];
+
+  // Login
+  const handleLogin = async () => {
+    if (!password) {
+      setLoginError('Veuillez entrer un mot de passe');
+      return;
+    }
+    setLoading(true);
+    setLoginError('');
+    try {
+      const response = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = await response.json();
+      if (data.token) {
+        setToken(data.token);
+        localStorage.setItem('weekendToken', data.token);
+        setPassword('');
+        loadGuests(data.token);
+      } else {
+        setLoginError('Mot de passe incorrect');
+      }
+    } catch (error) {
+      setLoginError('Erreur de connexion: ' + error.message);
+    }
+    setLoading(false);
+  };
+
+  const loadGuests = async (authToken) => {
+    try {
+      const response = await fetch(`${API_URL}/guests`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setGuests(data);
+      }
+    } catch (error) {
+      console.error('Erreur chargement:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (token) {
+      loadGuests(token);
+    }
+  }, [token]);
+
+  const handleLogout = () => {
+    setToken(null);
+    localStorage.removeItem('weekendToken');
+    setGuests([]);
+  };
+
+  const handleAddGuest = async () => {
+    if (!formData.name.trim()) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/guests`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      if (response.ok) {
+        const newGuest = await response.json();
+        setGuests([...guests, newGuest]);
+        resetForm();
+        alert('Invite ajoute');
+      }
+    } catch (error) {
+      alert('Erreur: ' + error.message);
+    }
+    setLoading(false);
+  };
+
+  const handleSaveGuest = async () => {
+    if (!formData.name.trim()) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/guests/${editingId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setGuests(guests.map(g => g._id === editingId ? updated : g));
+        resetForm();
+        alert('Invite mis a jour');
+      }
+    } catch (error) {
+      alert('Erreur: ' + error.message);
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteGuest = async (id) => {
+    if (!window.confirm('Confirmer la suppression ?')) return;
+    setLoading(true);
+    try {
+      await fetch(`${API_URL}/guests/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      setGuests(guests.filter(g => g._id !== id));
+      alert('Invite supprime');
+    } catch (error) {
+      alert('Erreur: ' + error.message);
+    }
+    setLoading(false);
+  };
+
+  const resetForm = () => {
+    setFormData({ name: '', attending: true, adults: 2, boys: 0, girls: 0, nightSatSun: false, nightSunMon: false, mealSatMid: false, mealSatEvn: false, mealSunMid: false, mealSunEvn: false, mealMonMid: false });
+    setEditingId(null);
+    setShowForm(false);
+  };
+
+  const handleEditGuest = (guest) => {
+    setFormData(guest);
+    setEditingId(guest._id);
+    setShowForm(true);
+  };
+
+  const getMealStats = (key) => {
+    const g = guests.filter(x => x.attending && x[key]);
+    const adults = g.reduce((s, x) => s + x.adults, 0);
+    const children = g.reduce((s, x) => s + x.boys + x.girls, 0);
+    const total = adults + children;
+    return { adults, children, total };
+  };
+
+  const mealsList = [
+    { name: 'Samedi midi', key: 'mealSatMid' },
+    { name: 'Samedi soir', key: 'mealSatEvn' },
+    { name: 'Dimanche midi', key: 'mealSunMid' },
+    { name: 'Dimanche soir', key: 'mealSunEvn' },
+    { name: 'Lundi midi', key: 'mealMonMid' }
+  ];
+
+  const attendingGuests = guests.filter(g => g.attending);
+
+  // Login screen
+  if (!token) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="bg-white rounded-lg shadow-2xl p-8 w-96">
+          <h1 className="text-4xl font-bold text-indigo-600 mb-8 text-center">Week-end en Famille</h1>
+          <div className="space-y-4">
+            <input
+              type="password"
+              placeholder="Mot de passe"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyPress={e => e.key === 'Enter' && handleLogin()}
+              className="w-full border rounded px-4 py-2 text-lg"
+            />
+            {loginError && <p className="text-red-500 text-sm">{loginError}</p>}
+            <button
+              onClick={handleLogin}
+              disabled={loading}
+              className="w-full bg-indigo-600 text-white py-2 rounded font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {loading ? 'Connexion...' : 'Se connecter'}
+            </button>
+          </div>
+          <p className="text-center text-gray-600 mt-6 text-sm">Version en ligne - Donnees synchronisees</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Main app
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      <header className="bg-white shadow">
+        <div className="max-w-6xl mx-auto px-4 py-6 flex justify-between items-center">
+          <h1 className="text-4xl font-bold text-indigo-600">Week-end en Famille</h1>
+          <button onClick={handleLogout} className="bg-red-600 text-white px-4 py-2 rounded font-semibold">Deconnexion</button>
+        </div>
+      </header>
+
+      <nav className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 flex gap-4 overflow-x-auto">
+          {['intro', 'guests', 'meals'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`py-4 px-6 font-semibold border-b-2 whitespace-nowrap ${activeTab === tab ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-600'}`}
+            >
+              {tab === 'intro' && 'Info'}
+              {tab === 'guests' && `Invites (${attendingGuests.length})`}
+              {tab === 'meals' && 'Repas'}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        {activeTab === 'intro' && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h2 className="text-3xl font-bold text-indigo-600 mb-4">Bienvenue</h2>
+            <p className="text-gray-700 mb-4">Gestion du week-end en famille en ligne</p>
+            <div className="mt-6 p-4 bg-green-50 rounded border border-green-200">
+              <p className="font-semibold text-green-900 mb-2">Connecte au serveur</p>
+              <p className="text-sm text-green-800">Vos donnees sont synchronisees avec le serveur.</p>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'guests' && (
+          <div className="space-y-6">
+            <button
+              onClick={() => { setShowForm(true); setEditingId(null); }}
+              className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50"
+              disabled={loading}
+            >
+              Ajouter un invite
+            </button>
+
+            {showForm && (
+              <div className="bg-white rounded-lg shadow p-8">
+                <h3 className="text-2xl font-bold mb-6 text-indigo-600">{editingId ? 'Editer' : 'Ajouter'}</h3>
+                <div className="space-y-4">
+                  <input type="text" placeholder="Nom" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border rounded px-4 py-2" />
+                  <div className="grid grid-cols-3 gap-4">
+                    <input type="number" min="0" placeholder="Adultes" value={formData.adults} onChange={e => setFormData({...formData, adults: parseInt(e.target.value) || 0})} className="border rounded px-4 py-2" />
+                    <input type="number" min="0" placeholder="Garcons" value={formData.boys} onChange={e => setFormData({...formData, boys: parseInt(e.target.value) || 0})} className="border rounded px-4 py-2" />
+                    <input type="number" min="0" placeholder="Filles" value={formData.girls} onChange={e => setFormData({...formData, girls: parseInt(e.target.value) || 0})} className="border rounded px-4 py-2" />
+                  </div>
+                  <label className="flex gap-2"><input type="checkbox" checked={formData.nightSatSun} onChange={e => setFormData({...formData, nightSatSun: e.target.checked})} /> Nuit Sam-Dim</label>
+                  <label className="flex gap-2"><input type="checkbox" checked={formData.nightSunMon} onChange={e => setFormData({...formData, nightSunMon: e.target.checked})} /> Nuit Dim-Lun</label>
+                  <div className="flex gap-4">
+                    <button onClick={editingId ? handleSaveGuest : handleAddGuest} disabled={loading} className="bg-indigo-600 text-white px-6 py-2 rounded disabled:opacity-50">{editingId ? 'Sauvegarder' : 'Ajouter'}</button>
+                    <button onClick={resetForm} className="bg-gray-300 px-6 py-2 rounded">Annuler</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {attendingGuests.map(g => (
+              <div key={g._id} className="bg-white rounded p-4 shadow flex justify-between items-center">
+                <div><h4 className="font-bold text-indigo-600">{g.name}</h4><p className="text-sm text-gray-600">{g.adults}A + {g.boys}G + {g.girls}F</p></div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleEditGuest(g)} className="text-blue-500 text-lg" disabled={loading}>Edit</button>
+                  <button onClick={() => handleDeleteGuest(g._id)} className="text-red-500 text-lg" disabled={loading}>Del</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'meals' && (
+          <div className="space-y-6">
+            <h2 className="text-3xl font-bold text-indigo-600">Repas</h2>
+            {mealsList.map(meal => {
+              const stats = getMealStats(meal.key);
+              const mealsGuests = guests.filter(g => g.attending && g[meal.key]);
+              return (
+                <div key={meal.key} className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-2xl font-bold text-indigo-600 mb-4">{meal.name}</h3>
+                  <div className="grid grid-cols-3 gap-4 mb-6">
+                    <div className="bg-indigo-50 rounded p-4"><p className="text-sm text-gray-600">Adultes</p><p className="text-3xl font-bold text-indigo-600">{stats.adults}</p></div>
+                    <div className="bg-blue-50 rounded p-4"><p className="text-sm text-gray-600">Enfants</p><p className="text-3xl font-bold text-blue-600">{stats.children}</p></div>
+                    <div className="bg-green-50 rounded p-4"><p className="text-sm text-gray-600">Total</p><p className="text-3xl font-bold text-green-600">{stats.total}</p></div>
+                  </div>
+                  <div className="bg-gray-50 rounded p-4">
+                    <p className="font-semibold text-gray-700 mb-2">Inscrits:</p>
+                    {mealsGuests.map(g => <p key={g._id} className="text-sm text-gray-600">{g.name} ({g.adults}A {g.boys + g.girls}E)</p>)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
