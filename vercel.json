@@ -1,4 +1,5 @@
 {
-  "buildCommand": "echo 'no build needed'",
-  "outputDirectory": "public"
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite"
 }
