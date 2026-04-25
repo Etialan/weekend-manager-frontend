@@ -23,6 +23,10 @@ const mealsList = [
   { name: 'Lundi midi', key: 'mealMonMid' },
 ];
 
+const dayLabels = { sat: 'Samedi', sun: 'Dimanche', mon: 'Lundi' };
+const dayOrder  = { sat: 0, sun: 1, mon: 2 };
+const allPhotos = ['photo1.jpg', 'photo2.jpg', 'photo3.jpg', 'photo4.jpg', 'photo5.jpg'];
+
 const emptyForm = {
   name: '',
   attending: true,
@@ -344,6 +348,271 @@ function RoomsTableViewer({ guests }) {
   );
 }
 
+// ─── Admin : onglet Accueil ───────────────────────────────────────────────────
+function AdminAccueilTab({ content, onSave, saving }) {
+  const [form, setForm] = useState({
+    welcomeTitle: content.welcomeTitle || '',
+    welcomeText:  content.welcomeText  || '',
+    welcomeImages: content.welcomeImages || [],
+  });
+
+  useEffect(() => {
+    setForm({
+      welcomeTitle: content.welcomeTitle || '',
+      welcomeText:  content.welcomeText  || '',
+      welcomeImages: content.welcomeImages || [],
+    });
+  }, [content]);
+
+  const togglePhoto = (photo) => {
+    setForm(f => ({
+      ...f,
+      welcomeImages: f.welcomeImages.includes(photo)
+        ? f.welcomeImages.filter(p => p !== photo)
+        : [...f.welcomeImages, photo],
+    }));
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <h3 style={{ fontWeight: 700, color: '#4f46e5', marginBottom: '20px', fontSize: '16px' }}>🏠 Contenu de la page d'accueil</h3>
+        <div style={{ marginBottom: '14px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Titre</label>
+          <input type="text" value={form.welcomeTitle}
+            onChange={e => setForm(f => ({ ...f, welcomeTitle: e.target.value }))}
+            placeholder="Ex : Bienvenue au week-end des 50 ans !"
+            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', boxSizing: 'border-box' }}
+          />
+        </div>
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+            Texte <span style={{ fontWeight: 400, color: '#9ca3af' }}>(les sauts de ligne sont conservés)</span>
+          </label>
+          <textarea value={form.welcomeText}
+            onChange={e => setForm(f => ({ ...f, welcomeText: e.target.value }))}
+            rows={8} placeholder={"Chers tous,\n\nNous sommes ravis de vous accueillir..."}
+            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', boxSizing: 'border-box', resize: 'vertical', lineHeight: 1.6 }}
+          />
+        </div>
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '10px' }}>Photos à afficher sur la page</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+            {allPhotos.map(photo => {
+              const selected = form.welcomeImages.includes(photo);
+              return (
+                <div key={photo} onClick={() => togglePhoto(photo)} style={{
+                  cursor: 'pointer', borderRadius: '10px', overflow: 'hidden',
+                  border: `3px solid ${selected ? '#4f46e5' : 'transparent'}`,
+                  boxShadow: selected ? '0 0 0 1px #4f46e5' : '0 1px 4px rgba(0,0,0,0.12)',
+                  opacity: selected ? 1 : 0.5, transition: 'all 0.2s',
+                }}>
+                  <img src={`/photos/${photo}`} alt="" style={{ width: '100%', height: '64px', objectFit: 'cover', display: 'block' }} />
+                  {selected && <div style={{ background: '#4f46e5', color: 'white', fontSize: '10px', fontWeight: 700, textAlign: 'center', padding: '2px' }}>✓</div>}
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px' }}>Cliquez pour sélectionner / désélectionner</p>
+        </div>
+        <button onClick={() => onSave({ welcomeTitle: form.welcomeTitle, welcomeText: form.welcomeText, welcomeImages: form.welcomeImages })}
+          disabled={saving}
+          style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '11px 28px', fontWeight: 700, fontSize: '14px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
+          {saving ? 'Sauvegarde...' : '💾 Sauvegarder'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin : onglet Planning ──────────────────────────────────────────────────
+function AdminPlanningTab({ content, onSave, saving }) {
+  const [planning, setPlanning] = useState(content.planning || []);
+  const [newEvent, setNewEvent] = useState({ day: 'sat', time: '12:00', emoji: '🎉', title: '', description: '' });
+
+  useEffect(() => { setPlanning(content.planning || []); }, [content]);
+
+  const sorted = [...planning].sort((a, b) => {
+    const d = dayOrder[a.day] - dayOrder[b.day];
+    return d !== 0 ? d : a.time.localeCompare(b.time);
+  });
+
+  const addEvent = () => {
+    if (!newEvent.title.trim()) return;
+    setPlanning(p => [...p, { ...newEvent, id: `${Date.now()}` }]);
+    setNewEvent(n => ({ ...n, title: '', description: '' }));
+  };
+
+  const inputStyle = { border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', boxSizing: 'border-box', width: '100%' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', borderLeft: '4px solid #4f46e5' }}>
+        <h3 style={{ fontWeight: 700, color: '#4f46e5', marginBottom: '16px', fontSize: '16px' }}>➕ Ajouter un événement</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 64px', gap: '10px', marginBottom: '10px' }}>
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Jour</label>
+            <select value={newEvent.day} onChange={e => setNewEvent(n => ({ ...n, day: e.target.value }))} style={inputStyle}>
+              <option value="sat">Samedi</option>
+              <option value="sun">Dimanche</option>
+              <option value="mon">Lundi</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Heure</label>
+            <input type="time" value={newEvent.time} onChange={e => setNewEvent(n => ({ ...n, time: e.target.value }))} style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Emoji</label>
+            <input type="text" value={newEvent.emoji} onChange={e => setNewEvent(n => ({ ...n, emoji: e.target.value }))}
+              style={{ ...inputStyle, textAlign: 'center', fontSize: '22px', padding: '4px' }} />
+          </div>
+        </div>
+        <div style={{ marginBottom: '10px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Titre *</label>
+          <input type="text" value={newEvent.title} onChange={e => setNewEvent(n => ({ ...n, title: e.target.value }))}
+            onKeyPress={e => e.key === 'Enter' && addEvent()}
+            placeholder="Ex : Apéritif de bienvenue" style={inputStyle} />
+        </div>
+        <div style={{ marginBottom: '14px' }}>
+          <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Description <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optionnel)</span></label>
+          <input type="text" value={newEvent.description} onChange={e => setNewEvent(n => ({ ...n, description: e.target.value }))}
+            placeholder="Ex : Dans le jardin près de l'étang" style={inputStyle} />
+        </div>
+        <button onClick={addEvent}
+          style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '9px 20px', fontWeight: 600, cursor: 'pointer' }}>
+          + Ajouter
+        </button>
+      </div>
+
+      <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <h3 style={{ fontWeight: 700, color: '#1f2937', marginBottom: '16px', fontSize: '16px' }}>
+          📅 Programme <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: '14px' }}>({planning.length} événement{planning.length > 1 ? 's' : ''})</span>
+        </h3>
+        {sorted.length === 0 && <p style={{ color: '#9ca3af', fontSize: '13px' }}>Aucun événement — ajoutez-en ci-dessus.</p>}
+        {['sat', 'sun', 'mon'].map(day => {
+          const events = sorted.filter(e => e.day === day);
+          if (!events.length) return null;
+          return (
+            <div key={day} style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid #f3f4f6', paddingBottom: '6px', marginBottom: '8px' }}>
+                {dayLabels[day]}
+              </div>
+              {events.map(ev => (
+                <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', minWidth: '38px' }}>{ev.time}</span>
+                    <span style={{ fontSize: '20px' }}>{ev.emoji}</span>
+                    <div>
+                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1f2937' }}>{ev.title}</span>
+                      {ev.description && <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>{ev.description}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => setPlanning(p => p.filter(e => e.id !== ev.id))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '16px', padding: '4px 6px' }}>
+                    🗑️
+                  </button>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+        <button onClick={() => onSave({ planning })} disabled={saving}
+          style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '11px 28px', fontWeight: 700, fontSize: '14px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1, marginTop: '8px' }}>
+          {saving ? 'Sauvegarde...' : '💾 Sauvegarder le planning'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Viewer : onglet Accueil ──────────────────────────────────────────────────
+function ViewerAccueilTab({ content }) {
+  const { welcomeTitle, welcomeText, welcomeImages } = content;
+  const hasContent = welcomeTitle || welcomeText || (welcomeImages && welcomeImages.length > 0);
+
+  if (!hasContent) return (
+    <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
+      <div style={{ fontSize: '48px', marginBottom: '12px' }}>🏠</div>
+      <p>La page d'accueil n'a pas encore été renseignée.</p>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {welcomeTitle && <h2 style={{ fontSize: '26px', fontWeight: 800, color: '#1f2937', margin: 0 }}>{welcomeTitle}</h2>}
+      {welcomeText && (
+        <div style={{ background: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: 1.8, color: '#374151' }}>
+          {welcomeText}
+        </div>
+      )}
+      {welcomeImages && welcomeImages.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: welcomeImages.length === 1 ? '1fr' : '1fr 1fr', gap: '12px' }}>
+          {welcomeImages.map(photo => (
+            <img key={photo} src={`/photos/${photo}`} alt=""
+              style={{ width: '100%', borderRadius: '14px', objectFit: 'cover', height: welcomeImages.length === 1 ? '320px' : '200px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'block' }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Viewer : onglet Planning ─────────────────────────────────────────────────
+function ViewerPlanningTab({ content }) {
+  const planning = content.planning || [];
+  const sorted = [...planning].sort((a, b) => {
+    const d = dayOrder[a.day] - dayOrder[b.day];
+    return d !== 0 ? d : a.time.localeCompare(b.time);
+  });
+
+  if (!sorted.length) return (
+    <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
+      <div style={{ fontSize: '48px', marginBottom: '12px' }}>📅</div>
+      <p>Le planning n'a pas encore été renseigné.</p>
+    </div>
+  );
+
+  const dayColors = {
+    sat: { bg: '#eff6ff', border: '#bfdbfe', title: '#1d4ed8' },
+    sun: { bg: '#f0fdf4', border: '#bbf7d0', title: '#15803d' },
+    mon: { bg: '#fff7ed', border: '#fed7aa', title: '#c2410c' },
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {['sat', 'sun', 'mon'].map(day => {
+        const events = sorted.filter(e => e.day === day);
+        if (!events.length) return null;
+        const c = dayColors[day];
+        return (
+          <div key={day} style={{ background: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.07)' }}>
+            <div style={{ background: c.bg, borderBottom: `2px solid ${c.border}`, padding: '14px 20px' }}>
+              <h3 style={{ fontWeight: 800, color: c.title, fontSize: '16px', margin: 0 }}>{dayLabels[day]}</h3>
+            </div>
+            <div style={{ padding: '8px 0' }}>
+              {events.map((ev, i) => (
+                <div key={ev.id} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '12px 20px',
+                  borderBottom: i < events.length - 1 ? '1px solid #f3f4f6' : 'none',
+                }}>
+                  <div style={{ minWidth: '44px', fontSize: '12px', fontWeight: 700, color: '#9ca3af', paddingTop: '3px' }}>{ev.time}</div>
+                  <div style={{ fontSize: '24px', lineHeight: 1.2 }}>{ev.emoji}</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '15px', color: '#1f2937' }}>{ev.title}</div>
+                    {ev.description && <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '3px' }}>{ev.description}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Carrousel hero ──────────────────────────────────────────────────────────
 const heroPhotos = ['/photos/photo1.jpg', '/photos/photo2.jpg', '/photos/photo3.jpg', '/photos/photo4.jpg', '/photos/photo5.jpg'];
 
@@ -390,7 +659,7 @@ function HeroCarousel() {
           50 ans d'Étienne !
         </h1>
         <p style={{ fontSize: '15px', opacity: 0.9, margin: 0, textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>
-          Week-end en famille · Mai 2025
+          Week-end en famille · Mai 2026
         </p>
       </div>
       {/* Pastilles de navigation */}
@@ -420,8 +689,8 @@ function HeroCarousel() {
 }
 
 // ─── Vue VIEWER (lecture seule, UX soignée) ───────────────────────────────────
-function ViewerApp({ guests, onLogout }) {
-  const [activeTab, setActiveTab] = useState('guests');
+function ViewerApp({ guests, content, onLogout }) {
+  const [activeTab, setActiveTab] = useState('accueil');
   const attendingGuests = guests.filter(g => g.attending);
 
   const totalAdults = attendingGuests.reduce((s, g) => s + (g.adults || 0), 0);
@@ -437,9 +706,11 @@ function ViewerApp({ guests, onLogout }) {
   };
 
   const viewerTabs = [
-    ['guests', `👨‍👩‍👧 Invités (${attendingGuests.length})`],
-    ['rooms', '🛏️ Chambres'],
-    ['meals', '🍽️ Repas'],
+    ['accueil',  '🏠 Accueil'],
+    ['planning', '📅 Planning'],
+    ['guests',   `👨‍👩‍👧 Invités (${attendingGuests.length})`],
+    ['rooms',    '🛏️ Chambres'],
+    ['meals',    '🍽️ Repas'],
   ];
 
   return (
@@ -506,6 +777,12 @@ function ViewerApp({ guests, onLogout }) {
       </nav>
 
       <main style={{ maxWidth: '860px', margin: '0 auto', padding: '24px 16px', position: 'relative', zIndex: 1 }}>
+
+        {/* ── ACCUEIL ── */}
+        {activeTab === 'accueil' && <ViewerAccueilTab content={content} />}
+
+        {/* ── PLANNING ── */}
+        {activeTab === 'planning' && <ViewerPlanningTab content={content} />}
 
         {/* ── INVITÉS ── */}
         {activeTab === 'guests' && (
@@ -691,6 +968,8 @@ export default function WeekendManager() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState('intro');
+  const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
+  const [contentSaving, setContentSaving] = useState(false);
   const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -716,8 +995,37 @@ export default function WeekendManager() {
     }
   };
 
+  // ── Chargement du contenu (accueil + planning) ──
+  const loadContent = async (t) => {
+    try {
+      const r = await fetch(`${API_URL}/content`, {
+        headers: { Authorization: `Bearer ${t || token}` },
+      });
+      if (r.ok) setContent(await r.json());
+    } catch (e) {
+      console.error('Erreur chargement contenu:', e);
+    }
+  };
+
+  // ── Sauvegarde du contenu ──
+  const saveContent = async (updates) => {
+    setContentSaving(true);
+    try {
+      const merged = { ...content, ...updates };
+      const r = await fetch(`${API_URL}/content`, {
+        method: 'PUT',
+        headers: authHeaders,
+        body: JSON.stringify(merged),
+      });
+      if (r.ok) setContent(await r.json());
+    } catch (e) {
+      alert('Erreur sauvegarde : ' + e.message);
+    }
+    setContentSaving(false);
+  };
+
   useEffect(() => {
-    if (token) loadGuests(token);
+    if (token) { loadGuests(token); loadContent(token); }
   }, [token]);
 
   // ── Auth ──
@@ -1010,7 +1318,7 @@ export default function WeekendManager() {
   // VUE VIEWER
   // ═══════════════════════════════════════════════════════
   if (role === 'viewer') {
-    return <ViewerApp guests={guests} onLogout={handleLogout} />;
+    return <ViewerApp guests={guests} content={content} onLogout={handleLogout} />;
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1066,10 +1374,12 @@ export default function WeekendManager() {
       <nav style={{ background: 'white', borderBottom: '1px solid #e5e7eb', position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ display: 'flex', gap: '4px', padding: '0 24px', overflowX: 'auto' }}>
           {[
-            ['intro', 'ℹ️ Info'],
-            ['guests', `👨‍👩‍👧 Invités (${attendingGuests.length})`],
-            ['rooms', '🛏️ Chambres'],
-            ['meals', '🍽️ Repas'],
+            ['intro',    'ℹ️ Info'],
+            ['accueil',  '🏠 Accueil'],
+            ['planning', '📅 Planning'],
+            ['guests',   `👨‍👩‍👧 Invités (${attendingGuests.length})`],
+            ['rooms',    '🛏️ Chambres'],
+            ['meals',    '🍽️ Repas'],
           ].map(([t, l]) => (
             <button
               key={t}
@@ -1104,7 +1414,7 @@ export default function WeekendManager() {
             </p>
             <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
               <p style={{ fontWeight: 700, color: '#065f46', marginBottom: '4px' }}>✅ Backend connecté</p>
-              <p style={{ fontSize: '13px', color: '#047857' }}>localhost:3001 — MongoDB</p>
+              <p style={{ fontSize: '13px', color: '#047857' }}>{API_URL.replace('/api', '')} — MongoDB</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
               {[
@@ -1119,6 +1429,16 @@ export default function WeekendManager() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ── ACCUEIL admin ── */}
+        {activeTab === 'accueil' && (
+          <AdminAccueilTab content={content} onSave={saveContent} saving={contentSaving} />
+        )}
+
+        {/* ── PLANNING admin ── */}
+        {activeTab === 'planning' && (
+          <AdminPlanningTab content={content} onSave={saveContent} saving={contentSaving} />
         )}
 
         {/* ── INVITÉS ── */}
