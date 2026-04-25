@@ -1017,9 +1017,14 @@ export default function WeekendManager() {
         headers: authHeaders,
         body: JSON.stringify(merged),
       });
-      if (r.ok) setContent(await r.json());
+      if (r.ok) {
+        setContent(await r.json());
+      } else {
+        const err = await r.json().catch(() => ({}));
+        alert(`Erreur ${r.status} : ${err.error || 'La sauvegarde a échoué'}\n\nSi le problème persiste, déconnectez-vous et reconnectez-vous.`);
+      }
     } catch (e) {
-      alert('Erreur sauvegarde : ' + e.message);
+      alert('Erreur réseau : ' + e.message);
     }
     setContentSaving(false);
   };
