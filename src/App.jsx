@@ -354,6 +354,7 @@ function RoomsTableViewer({ guests }) {
         </tbody>
       </table>
     </div>
+    </div>
   );
 }
 
