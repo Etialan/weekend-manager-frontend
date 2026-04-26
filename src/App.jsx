@@ -310,14 +310,26 @@ function RoomsTableViewer({ guests }) {
   };
 
   return (
-    <div style={{ background: 'white', borderRadius: '14px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
+    <div>
+      {/* Légende */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ background: '#fed7aa', color: '#9a3412', borderRadius: '4px', padding: '2px 10px', fontSize: '12px', fontWeight: 600 }}>Famille</span>
+          <span style={{ fontSize: '12px', color: '#6b7280' }}>Adultes</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ background: '#e0e7ff', color: '#3730a3', borderRadius: '4px', padding: '2px 10px', fontSize: '12px', fontWeight: 600 }}>Famille 2♂ 1♀</span>
+          <span style={{ fontSize: '12px', color: '#6b7280' }}>Enfants</span>
+        </div>
+      </div>
+
+      <div style={{ background: 'white', borderRadius: '14px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead style={{ background: '#f9fafb' }}>
           <tr>
-            <th style={{ ...thStyle, color: '#4b5563', width: '35%' }}>Chambre</th>
-            <th style={{ ...thStyle, color: '#4b5563', width: '8%', textAlign: 'center' }}>Cap.</th>
-            <th style={{ ...thStyle, color: '#4338ca', width: '28%' }}>🌙 Sam → Dim</th>
-            <th style={{ ...thStyle, color: '#065f46', width: '29%' }}>🌙 Dim → Lun</th>
+            <th style={{ ...thStyle, color: '#4b5563', width: '38%' }}>Chambre</th>
+            <th style={{ ...thStyle, color: '#4338ca', width: '31%' }}>🌙 Sam → Dim</th>
+            <th style={{ ...thStyle, color: '#065f46', width: '31%' }}>🌙 Dim → Lun</th>
           </tr>
         </thead>
         <tbody>
@@ -329,9 +341,6 @@ function RoomsTableViewer({ guests }) {
               <tr key={room.id} style={{ background: empty ? '#fafafa' : 'white' }}>
                 <td style={{ ...tdStyle, fontWeight: 600, fontSize: '13px', color: empty ? '#9ca3af' : '#1f2937' }}>
                   {room.name}
-                </td>
-                <td style={{ ...tdStyle, textAlign: 'center', fontSize: '12px', color: '#9ca3af' }}>
-                  {room.capacity === 999 ? '∞' : room.capacity}
                 </td>
                 <td style={{ ...tdStyle }}>
                   <CellContent cell={satCell} roomId={room.id} childrenKey="roomChildrenSatSun" />
