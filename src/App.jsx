@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const CLD_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dhiipwnd0';
+const CLD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'photos_50';
 
 const rooms = [
   { id: 1, name: 'Chambre Tante Madie (rdc)', capacity: 4 },
@@ -1003,8 +1005,53 @@ function TeamApp({ token, teamName, onLogout }) {
   const [answerResult, setAnswerResult] = useState(null);
   const [networkError, setNetworkError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedMedia, setUploadedMedia] = useState([]); // médias envoyés cette session
 
   const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+
+  // ── Upload Cloudinary + sauvegarde backend ──
+  const handleMediaUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    // Limite : 50 MB
+    if (file.size > 50 * 1024 * 1024) { alert('Fichier trop volumineux (max 50 MB)'); return; }
+    setUploading(true);
+    try {
+      // 1. Upload vers Cloudinary
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLD_PRESET);
+      const cldRes = await fetch(
+        'https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/auto/upload',
+        { method: 'POST', body: fd }
+      );
+      if (!cldRes.ok) throw new Error('Échec upload Cloudinary');
+      const cld = await cldRes.json();
+
+      // 2. Enregistrer l'URL dans notre backend
+      const stageId = state && state.currentStage ? state.currentStage._id : null;
+      const stageLabel = state && state.currentStage ? state.currentStage.label : null;
+      await fetch(API_URL + '/hunt/team/media', {
+        method: 'POST',
+        headers: th,
+        body: JSON.stringify({
+          url: cld.secure_url,
+          publicId: cld.public_id,
+          resourceType: cld.resource_type,
+          stageId,
+          stageLabel,
+        }),
+      });
+      setUploadedMedia(m => [...m, { url: cld.secure_url, type: cld.resource_type }]);
+      alert('📸 Photo/vidéo envoyée !');
+    } catch (err) {
+      alert('Erreur : ' + err.message);
+    }
+    setUploading(false);
+    // Reset input pour permettre le même fichier
+    e.target.value = '';
+  };
 
   const loadState = async () => {
     try {
@@ -1120,6 +1167,34 @@ function TeamApp({ token, teamName, onLogout }) {
     cursor: 'pointer', marginTop: mt, minHeight: '54px',
   });
 
+  // ── Bouton photo/vidéo réutilisable ──
+  const MediaBtn = () => (
+    <div style={{ marginTop: '12px' }}>
+      <label style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+        width: '100%', padding: '13px', fontSize: '16px', fontWeight: 700,
+        background: uploading ? '#e5e7eb' : '#f59e0b', color: uploading ? '#9ca3af' : 'white',
+        border: 'none', borderRadius: '12px', cursor: uploading ? 'not-allowed' : 'pointer',
+        minHeight: '50px', boxSizing: 'border-box',
+      }}>
+        <input
+          type="file"
+          accept="image/*,video/*"
+          capture="environment"
+          onChange={handleMediaUpload}
+          disabled={uploading}
+          style={{ display: 'none' }}
+        />
+        {uploading ? '⏳ Envoi en cours…' : '📸 Envoyer une photo / vidéo'}
+      </label>
+      {uploadedMedia.length > 0 && (
+        <p style={{ textAlign: 'center', fontSize: '12px', color: '#059669', margin: '6px 0 0' }}>
+          ✓ {uploadedMedia.length} média{uploadedMedia.length > 1 ? 's' : ''} envoyé{uploadedMedia.length > 1 ? 's' : ''}
+        </p>
+      )}
+    </div>
+  );
+
   const Progress = () => state ? (
     <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px', textAlign: 'center' }}>
       Étape {state.team.currentStageIndex} / {state.team.totalStages} — {state.team.name}
@@ -1191,7 +1266,8 @@ function TeamApp({ token, teamName, onLogout }) {
             )}
           </div>
         )}
-        <button style={btn('#6b7280')} onClick={onLogout}>Déconnexion</button>
+        <MediaBtn />
+        <button style={btn('#6b7280', '8px')} onClick={onLogout}>Déconnexion</button>
       </div>
     </div>
   );
@@ -1208,7 +1284,8 @@ function TeamApp({ token, teamName, onLogout }) {
             {state && state.currentStage && state.currentStage.activityInstructions}
           </p>
         </div>
-        <button style={btn('#059669')} onClick={() => setView('question')}>Répondre à la question →</button>
+        <MediaBtn />
+        <button style={btn('#059669', '12px')} onClick={() => setView('question')}>Répondre à la question →</button>
       </div>
     </div>
   );
@@ -1295,6 +1372,7 @@ function AdminHuntTab({ token }) {
   const [stages, setStages] = useState([]);
   const [teams, setTeams] = useState([]);
   const [scoreboard, setScoreboard] = useState(null);
+  const [gallery, setGallery] = useState([]);
   const [section, setSection] = useState('hunts'); // hunts | stages | teams | score
   const [newHuntName, setNewHuntName] = useState('');
   const [newTeamName, setNewTeamName] = useState('');
@@ -1325,21 +1403,34 @@ function AdminHuntTab({ token }) {
     if (r.ok) setScoreboard(await r.json());
   };
 
+  const loadGallery = async (huntId) => {
+    const r = await fetch(API_URL + '/hunt/' + huntId + '/media', { headers: th });
+    if (r.ok) setGallery(await r.json());
+  };
+
+  const deleteMedia = async (id) => {
+    if (!window.confirm('Supprimer ce média ?')) return;
+    await fetch(API_URL + '/hunt/' + selectedHunt._id + '/media/' + id, { method: 'DELETE', headers: th });
+    setGallery(g => g.filter(m => m._id !== id));
+  };
+
   useEffect(() => { loadHunts(); }, []);
 
   useEffect(() => {
     if (selectedHunt) {
       loadHuntData(selectedHunt._id);
       if (section === 'score') loadScoreboard(selectedHunt._id);
+      if (section === 'gallery') loadGallery(selectedHunt._id);
     }
   }, [selectedHunt, section]);
 
   // Polling toutes les 10s sur les sections dynamiques
   useEffect(() => {
-    if (!selectedHunt || (section !== 'teams' && section !== 'score')) return;
+    if (!selectedHunt || (section !== 'teams' && section !== 'score' && section !== 'gallery')) return;
     const iv = setInterval(() => {
       loadHuntData(selectedHunt._id);
       if (section === 'score') loadScoreboard(selectedHunt._id);
+      if (section === 'gallery') loadGallery(selectedHunt._id);
     }, 10000);
     return () => clearInterval(iv);
   }, [selectedHunt, section]);
@@ -1456,7 +1547,7 @@ function AdminHuntTab({ token }) {
 
   // ── Vue détail d'une partie ──
   const hunt = hunts.find(h => h._id === selectedHunt._id) || selectedHunt;
-  const subTabs = [['stages', '📍 Étapes'], ['teams', '👥 Équipes'], ['score', '🏆 Scores']];
+  const subTabs = [['stages', '📍 Étapes'], ['teams', '👥 Équipes'], ['score', '🏆 Scores'], ['gallery', '📸 Galerie']];
 
   return (
     <div>
@@ -1672,6 +1763,86 @@ function AdminHuntTab({ token }) {
           )}
         </div>
       )}
+
+      {/* ── Galerie ── */}
+      {section === 'gallery' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontWeight: 700, margin: 0 }}>📸 Photos & Vidéos</h3>
+            <button onClick={() => loadGallery(selectedHunt._id)}
+              style={{ background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '8px', padding: '7px 14px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
+              ↻ Actualiser
+            </button>
+          </div>
+          {gallery.length === 0 ? (
+            <div style={{ background: 'white', borderRadius: '12px', padding: '40px', textAlign: 'center', color: '#9ca3af', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <div style={{ fontSize: '40px', marginBottom: '8px' }}>📷</div>
+              <p>Aucun média envoyé pour l'instant</p>
+              <p style={{ fontSize: '13px' }}>Les équipes peuvent envoyer des photos/vidéos depuis leur interface de jeu.</p>
+            </div>
+          ) : (
+            <div>
+              {/* Grouper par équipe */}
+              {[...new Set(gallery.map(m => m.teamName))].map(tName => {
+                const teamMedia = gallery.filter(m => m.teamName === tName);
+                return (
+                  <div key={tName} style={{ marginBottom: '24px' }}>
+                    <h4 style={{ fontWeight: 700, color: '#4f46e5', marginBottom: '12px', fontSize: '16px' }}>
+                      👥 {tName} — {teamMedia.length} média{teamMedia.length > 1 ? 's' : ''}
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
+                      {teamMedia.map(m => (
+                        <div key={m._id} style={{ background: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', position: 'relative' }}>
+                          {m.resourceType === 'video' ? (
+                            <video
+                              src={m.url}
+                              controls
+                              style={{ width: '100%', height: '160px', objectFit: 'cover', display: 'block' }}
+                            />
+                          ) : (
+                            <a href={m.url} target="_blank" rel="noreferrer">
+                              <img
+                                src={m.url.replace('/upload/', '/upload/w_400,q_auto/')}
+                                alt={m.stageLabel || ''}
+                                style={{ width: '100%', height: '160px', objectFit: 'cover', display: 'block' }}
+                              />
+                            </a>
+                          )}
+                          <div style={{ padding: '8px 10px' }}>
+                            {m.stageLabel && (
+                              <p style={{ fontSize: '11px', color: '#6b7280', margin: '0 0 2px', fontWeight: 600 }}>
+                                📍 {m.stageLabel}
+                              </p>
+                            )}
+                            <p style={{ fontSize: '11px', color: '#9ca3af', margin: 0 }}>
+                              {new Date(m.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => deleteMedia(m._id)}
+                            style={{ position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: '6px', width: '26px', height: '26px', cursor: 'pointer', fontSize: '13px', lineHeight: 1 }}
+                            title="Supprimer"
+                          >✕</button>
+                          <a
+                            href={m.url}
+                            download
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ display: 'block', textAlign: 'center', padding: '6px', fontSize: '12px', color: '#4f46e5', fontWeight: 600, textDecoration: 'none', borderTop: '1px solid #f3f4f6' }}
+                          >
+                            ⬇ Télécharger
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
