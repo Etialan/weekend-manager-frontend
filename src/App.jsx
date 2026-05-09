@@ -971,12 +971,720 @@ function ViewerApp({ guests, content, onLogout }) {
   );
 }
 
+// ─── Helper GPS ──────────────────────────────────────────────────────────────
+function getDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function fmtDuration(ms) {
+  if (!ms || ms < 0) return '-';
+  const s = Math.round(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return h + 'h' + String(m).padStart(2, '0');
+  if (m > 0) return m + 'min' + String(sec).padStart(2, '0') + 's';
+  return sec + 's';
+}
+
+// ─── Interface Joueur (role=team) ─────────────────────────────────────────────
+function TeamApp({ token, teamName, onLogout }) {
+  const [state, setState] = useState(null);
+  const [view, setView] = useState('loading');
+  const [gpsError, setGpsError] = useState(null);
+  const [position, setPosition] = useState(null);
+  const [answer, setAnswer] = useState('');
+  const [answerResult, setAnswerResult] = useState(null);
+  const [networkError, setNetworkError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+
+  const loadState = async () => {
+    try {
+      setNetworkError(null);
+      const r = await fetch(API_URL + '/hunt/team/me', { headers: th });
+      if (!r.ok) { setView('error'); return; }
+      const data = await r.json();
+      setState(data);
+      if (data.hunt.status === 'idle') { setView('waiting'); return; }
+      if (data.team.status === 'finished') { setView('finished'); return; }
+      if (!data.currentStage) { setView('finished'); return; }
+      setView(data.currentStage.hasArrived ? 'activite' : 'enroute');
+    } catch (e) {
+      setNetworkError(e.message);
+    }
+  };
+
+  useEffect(() => {
+    loadState();
+    const iv = setInterval(loadState, 10000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Watch GPS uniquement sur l'écran "En route"
+  useEffect(() => {
+    if (view !== 'enroute' || !state || !state.currentStage) return;
+    if (!navigator.geolocation) {
+      setGpsError("La géolocalisation n'est pas supportée par ce navigateur.");
+      return;
+    }
+    let sent = false;
+    const watcher = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        setPosition({ lat, lng });
+        setGpsError(null);
+        if (!sent && state.currentStage) {
+          const dist = getDistanceMeters(lat, lng, state.currentStage.gpsLat, state.currentStage.gpsLng);
+          if (dist <= state.currentStage.radiusMeters) {
+            sent = true;
+            try {
+              const r = await fetch(API_URL + '/hunt/team/arrive', {
+                method: 'POST', headers: th,
+                body: JSON.stringify({ lat, lng }),
+              });
+              if (r.ok) {
+                const data = await r.json();
+                setState(s => ({
+                  ...s,
+                  currentStage: {
+                    ...s.currentStage,
+                    hasArrived: true,
+                    activityInstructions: data.activityInstructions,
+                    question: data.question,
+                  },
+                }));
+                setView('activite');
+              } else { sent = false; }
+            } catch (_) { sent = false; }
+          }
+        }
+      },
+      (err) => {
+        setGpsError(
+          err.code === err.PERMISSION_DENIED
+            ? 'Permission GPS refusée. Autorisez la géolocalisation dans les paramètres.'
+            : 'Impossible d\'obtenir votre position GPS. Vérifiez que le GPS est activé.'
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+    );
+    return () => navigator.geolocation.clearWatch(watcher);
+  }, [view, state && state.currentStage && state.currentStage._id]);
+
+  const handleAnswer = async () => {
+    if (!answer.trim()) return;
+    setSubmitting(true);
+    try {
+      const r = await fetch(API_URL + '/hunt/team/answer', {
+        method: 'POST', headers: th,
+        body: JSON.stringify({ answer }),
+      });
+      const data = await r.json();
+      setAnswerResult(data);
+      if (data.correct) {
+        setView(data.finished ? 'finished' : 'nextclue');
+      }
+    } catch (e) { setNetworkError(e.message); }
+    setSubmitting(false);
+  };
+
+  const handleContinue = async () => {
+    setAnswer('');
+    setAnswerResult(null);
+    await loadState();
+  };
+
+  const screenStyle = {
+    minHeight: '100vh', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center', padding: '24px 16px',
+    background: 'linear-gradient(135deg, #1e3a5f 0%, #2d6a4f 100%)',
+    color: 'white', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+  };
+  const cardStyle = {
+    background: 'rgba(255,255,255,0.97)', color: '#1f2937',
+    borderRadius: '20px', padding: '28px 24px',
+    width: '100%', maxWidth: '420px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+  };
+  const btn = (bg, mt = '12px') => ({
+    width: '100%', padding: '16px', fontSize: '17px', fontWeight: 700,
+    background: bg, color: 'white', border: 'none', borderRadius: '12px',
+    cursor: 'pointer', marginTop: mt, minHeight: '54px',
+  });
+
+  const Progress = () => state ? (
+    <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px', textAlign: 'center' }}>
+      Étape {state.team.currentStageIndex} / {state.team.totalStages} — {state.team.name}
+    </div>
+  ) : null;
+
+  // ── Écrans ──
+
+  if (networkError) return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '40px', textAlign: 'center', marginBottom: '12px' }}>📡</div>
+        <h2 style={{ textAlign: 'center', color: '#dc2626' }}>Connexion perdue</h2>
+        <p style={{ textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>{networkError}</p>
+        <button style={btn('#2563eb')} onClick={loadState}>Réessayer</button>
+        <button style={btn('#6b7280', '8px')} onClick={onLogout}>Déconnexion</button>
+      </div>
+    </div>
+  );
+
+  if (view === 'loading') return (
+    <div style={screenStyle}>
+      <div style={{ fontSize: '40px', marginBottom: '12px' }}>⏳</div>
+      <p style={{ fontSize: '18px' }}>Chargement...</p>
+    </div>
+  );
+
+  if (view === 'waiting') return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '60px', textAlign: 'center', marginBottom: '16px' }}>🏁</div>
+        <h2 style={{ textAlign: 'center', margin: '0 0 8px' }}>{teamName}</h2>
+        <p style={{ textAlign: 'center', color: '#6b7280', fontSize: '18px', margin: '0 0 8px' }}>
+          La chasse commence bientôt…
+        </p>
+        <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: '14px' }}>
+          Attendez le signal de l'organisateur.
+        </p>
+        <button style={btn('#6b7280')} onClick={onLogout}>Déconnexion</button>
+      </div>
+    </div>
+  );
+
+  if (view === 'enroute') return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>🧭</div>
+        <Progress />
+        <h3 style={{ color: '#1e40af', textAlign: 'center', margin: '0 0 16px' }}>En route !</h3>
+        {state && state.previousNextClue && (
+          <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#92400e', marginBottom: '6px', textTransform: 'uppercase' }}>🗺️ Votre indice</div>
+            <p style={{ margin: 0, fontSize: '16px', color: '#78350f', lineHeight: 1.5 }}>{state.previousNextClue}</p>
+          </div>
+        )}
+        {gpsError ? (
+          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '10px', padding: '14px', marginBottom: '12px' }}>
+            <p style={{ color: '#dc2626', margin: '0 0 8px', fontSize: '14px' }}>📍 {gpsError}</p>
+            <button style={btn('#dc2626', '0')} onClick={() => setGpsError(null)}>Réessayer le GPS</button>
+          </div>
+        ) : (
+          <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '10px', padding: '14px', textAlign: 'center' }}>
+            <div style={{ fontSize: '24px', marginBottom: '4px' }}>📍</div>
+            <p style={{ color: '#166534', margin: 0, fontSize: '14px', fontWeight: 600 }}>GPS actif — déclenchement automatique</p>
+            {position && (
+              <p style={{ color: '#4b5563', margin: '4px 0 0', fontSize: '12px' }}>
+                {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
+              </p>
+            )}
+          </div>
+        )}
+        <button style={btn('#6b7280')} onClick={onLogout}>Déconnexion</button>
+      </div>
+    </div>
+  );
+
+  if (view === 'activite') return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>🎯</div>
+        <Progress />
+        <h3 style={{ color: '#065f46', textAlign: 'center', margin: '0 0 16px' }}>Vous êtes arrivés !</h3>
+        <div style={{ background: '#ecfdf5', border: '2px solid #6ee7b7', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#065f46', marginBottom: '8px', textTransform: 'uppercase' }}>📋 Activité</div>
+          <p style={{ margin: 0, fontSize: '16px', color: '#1f2937', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+            {state && state.currentStage && state.currentStage.activityInstructions}
+          </p>
+        </div>
+        <button style={btn('#059669')} onClick={() => setView('question')}>Répondre à la question →</button>
+      </div>
+    </div>
+  );
+
+  if (view === 'question') return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>❓</div>
+        <Progress />
+        <div style={{ background: '#eff6ff', border: '2px solid #93c5fd', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#1e40af', marginBottom: '8px', textTransform: 'uppercase' }}>❓ Question</div>
+          <p style={{ margin: 0, fontSize: '16px', color: '#1f2937', lineHeight: 1.6 }}>
+            {state && state.currentStage && state.currentStage.question}
+          </p>
+        </div>
+        {answerResult && !answerResult.correct && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '10px', padding: '12px', marginBottom: '12px' }}>
+            <p style={{ color: '#dc2626', margin: 0, fontWeight: 600, fontSize: '15px' }}>
+              ❌ Mauvaise réponse ({answerResult.attempts} tentative{answerResult.attempts > 1 ? 's' : ''})
+            </p>
+          </div>
+        )}
+        <input
+          type="text"
+          value={answer}
+          onChange={e => setAnswer(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleAnswer()}
+          placeholder="Votre réponse…"
+          style={{
+            width: '100%', padding: '14px', fontSize: '18px',
+            border: '2px solid #d1d5db', borderRadius: '10px',
+            outline: 'none', boxSizing: 'border-box',
+          }}
+        />
+        <button style={btn('#2563eb')} onClick={handleAnswer} disabled={submitting}>
+          {submitting ? '…' : 'Valider ✓'}
+        </button>
+        <button style={btn('#6b7280', '8px')} onClick={() => setView('activite')}>← Retour à l'activité</button>
+      </div>
+    </div>
+  );
+
+  if (view === 'nextclue') return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>✅</div>
+        <h2 style={{ textAlign: 'center', color: '#059669', margin: '0 0 4px' }}>Bonne réponse !</h2>
+        <Progress />
+        {answerResult && answerResult.nextClue && (
+          <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '12px', padding: '20px', margin: '16px 0' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#92400e', marginBottom: '10px', textTransform: 'uppercase' }}>🗺️ Votre prochain indice</div>
+            <p style={{ margin: 0, fontSize: '18px', color: '#78350f', lineHeight: 1.6, fontStyle: 'italic' }}>
+              "{answerResult.nextClue}"
+            </p>
+          </div>
+        )}
+        <button style={btn('#059669')} onClick={handleContinue}>C'est parti ! 🚀</button>
+      </div>
+    </div>
+  );
+
+  if (view === 'finished') return (
+    <div style={{ ...screenStyle, background: 'linear-gradient(135deg, #065f46 0%, #1e3a5f 100%)' }}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: '70px', textAlign: 'center', marginBottom: '8px' }}>🏆</div>
+        <h1 style={{ textAlign: 'center', color: '#059669', margin: '0 0 8px' }}>Félicitations !</h1>
+        <h2 style={{ textAlign: 'center', margin: '0 0 16px' }}>{teamName}</h2>
+        <p style={{ textAlign: 'center', color: '#6b7280', fontSize: '18px' }}>
+          Vous avez terminé la chasse au trésor ! 🎉
+        </p>
+        <button style={btn('#6b7280', '24px')} onClick={onLogout}>Déconnexion</button>
+      </div>
+    </div>
+  );
+
+  return null;
+}
+
+// ─── Admin : onglet Chasse au Trésor ─────────────────────────────────────────
+function AdminHuntTab({ token }) {
+  const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+  const [hunts, setHunts] = useState([]);
+  const [selectedHunt, setSelectedHunt] = useState(null);
+  const [stages, setStages] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [scoreboard, setScoreboard] = useState(null);
+  const [section, setSection] = useState('hunts'); // hunts | stages | teams | score
+  const [newHuntName, setNewHuntName] = useState('');
+  const [newTeamName, setNewTeamName] = useState('');
+  const [stageForm, setStageForm] = useState(null); // null | {} | {_id,...}
+  const [loading, setLoading] = useState(false);
+
+  const emptyStageForm = {
+    label: '', gpsLat: '', gpsLng: '', radiusMeters: 15,
+    activityInstructions: '', question: '', answerExpected: '', nextClue: '', order: 1,
+  };
+
+  const loadHunts = async () => {
+    const r = await fetch(API_URL + '/hunt', { headers: th });
+    if (r.ok) setHunts(await r.json());
+  };
+
+  const loadHuntData = async (huntId) => {
+    const [rs, rt] = await Promise.all([
+      fetch(API_URL + '/hunt/' + huntId + '/stages', { headers: th }),
+      fetch(API_URL + '/hunt/' + huntId + '/teams', { headers: th }),
+    ]);
+    if (rs.ok) setStages(await rs.json());
+    if (rt.ok) setTeams(await rt.json());
+  };
+
+  const loadScoreboard = async (huntId) => {
+    const r = await fetch(API_URL + '/hunt/' + huntId + '/scoreboard', { headers: th });
+    if (r.ok) setScoreboard(await r.json());
+  };
+
+  useEffect(() => { loadHunts(); }, []);
+
+  useEffect(() => {
+    if (selectedHunt) {
+      loadHuntData(selectedHunt._id);
+      if (section === 'score') loadScoreboard(selectedHunt._id);
+    }
+  }, [selectedHunt, section]);
+
+  // Polling toutes les 10s sur les sections dynamiques
+  useEffect(() => {
+    if (!selectedHunt || (section !== 'teams' && section !== 'score')) return;
+    const iv = setInterval(() => {
+      loadHuntData(selectedHunt._id);
+      if (section === 'score') loadScoreboard(selectedHunt._id);
+    }, 10000);
+    return () => clearInterval(iv);
+  }, [selectedHunt, section]);
+
+  const createHunt = async () => {
+    if (!newHuntName.trim()) return;
+    setLoading(true);
+    const r = await fetch(API_URL + '/hunt', { method: 'POST', headers: th, body: JSON.stringify({ name: newHuntName }) });
+    if (r.ok) { await loadHunts(); setNewHuntName(''); }
+    setLoading(false);
+  };
+
+  const huntAction = async (action) => {
+    if (!selectedHunt) return;
+    if (action === 'reset' && !window.confirm('Réinitialiser la partie ? Toutes les progressions seront effacées.')) return;
+    setLoading(true);
+    const r = await fetch(API_URL + '/hunt/' + selectedHunt._id + '/' + action, { method: 'POST', headers: th });
+    if (r.ok) {
+      const updated = await r.json();
+      setSelectedHunt(updated.status ? updated : selectedHunt);
+      await loadHunts();
+      if (action === 'reset') { setTeams([]); setScoreboard(null); await loadHuntData(selectedHunt._id); }
+    }
+    setLoading(false);
+  };
+
+  const saveStage = async () => {
+    if (!stageForm || !stageForm.label) return;
+    setLoading(true);
+    const body = {
+      ...stageForm,
+      gpsLat: parseFloat(stageForm.gpsLat) || 0,
+      gpsLng: parseFloat(stageForm.gpsLng) || 0,
+      radiusMeters: parseInt(stageForm.radiusMeters) || 15,
+      order: parseInt(stageForm.order) || 1,
+    };
+    const url = stageForm._id
+      ? API_URL + '/hunt/' + selectedHunt._id + '/stages/' + stageForm._id
+      : API_URL + '/hunt/' + selectedHunt._id + '/stages';
+    const method = stageForm._id ? 'PUT' : 'POST';
+    const r = await fetch(url, { method, headers: th, body: JSON.stringify(body) });
+    if (r.ok) { setStageForm(null); await loadHuntData(selectedHunt._id); }
+    setLoading(false);
+  };
+
+  const deleteStage = async (id) => {
+    if (!window.confirm('Supprimer cette étape ?')) return;
+    await fetch(API_URL + '/hunt/' + selectedHunt._id + '/stages/' + id, { method: 'DELETE', headers: th });
+    await loadHuntData(selectedHunt._id);
+  };
+
+  const createTeam = async () => {
+    if (!newTeamName.trim()) return;
+    if (stages.length === 0) { alert('Ajoutez d\'abord des étapes avant de créer des équipes.'); return; }
+    setLoading(true);
+    const r = await fetch(API_URL + '/hunt/' + selectedHunt._id + '/teams', {
+      method: 'POST', headers: th, body: JSON.stringify({ name: newTeamName }),
+    });
+    if (r.ok) { setNewTeamName(''); await loadHuntData(selectedHunt._id); }
+    setLoading(false);
+  };
+
+  const deleteTeam = async (id) => {
+    if (!window.confirm('Supprimer cette équipe ?')) return;
+    await fetch(API_URL + '/hunt/' + selectedHunt._id + '/teams/' + id, { method: 'DELETE', headers: th });
+    await loadHuntData(selectedHunt._id);
+  };
+
+  const useMyGPS = () => {
+    if (!navigator.geolocation) { alert('GPS non disponible'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setStageForm(f => ({ ...f, gpsLat: pos.coords.latitude, gpsLng: pos.coords.longitude })),
+      () => alert('Impossible d\'obtenir la position GPS')
+    );
+  };
+
+  const statusColor = (s) => s === 'active' ? '#059669' : s === 'finished' ? '#6b7280' : '#d97706';
+  const statusLabel = (s) => s === 'active' ? '▶ En cours' : s === 'finished' ? '✓ Terminée' : '○ En attente';
+
+  const card = { background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', padding: '20px', marginBottom: '16px' };
+  const inputStyle = { border: '1px solid #d1d5db', borderRadius: '8px', padding: '9px 12px', fontSize: '14px', width: '100%', boxSizing: 'border-box' };
+  const btnPrimary = { background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '9px 18px', fontWeight: 600, cursor: 'pointer', fontSize: '14px' };
+
+  // ── Sélection de la partie ──
+  if (!selectedHunt) return (
+    <div>
+      <div style={card}>
+        <h2 style={{ fontWeight: 800, color: '#4f46e5', margin: '0 0 16px' }}>🎯 Chasse au Trésor GPS</h2>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          <input value={newHuntName} onChange={e => setNewHuntName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && createHunt()}
+            placeholder="Nom de la partie…" style={{ ...inputStyle, flex: 1 }} />
+          <button onClick={createHunt} disabled={loading} style={btnPrimary}>Créer</button>
+        </div>
+        {hunts.length === 0 && <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucune partie créée</p>}
+        {hunts.map(h => (
+          <div key={h._id} onClick={() => setSelectedHunt(h)}
+            style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '14px 18px', marginBottom: '10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '15px' }}>{h.name}</div>
+              <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>
+                {new Date(h.createdAt).toLocaleDateString('fr-FR')}
+              </div>
+            </div>
+            <span style={{ background: statusColor(h.status) + '22', color: statusColor(h.status), borderRadius: '20px', padding: '4px 12px', fontSize: '12px', fontWeight: 700 }}>
+              {statusLabel(h.status)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Vue détail d'une partie ──
+  const hunt = hunts.find(h => h._id === selectedHunt._id) || selectedHunt;
+  const subTabs = [['stages', '📍 Étapes'], ['teams', '👥 Équipes'], ['score', '🏆 Scores']];
+
+  return (
+    <div>
+      {/* Header partie */}
+      <div style={{ ...card, borderLeft: '4px solid ' + statusColor(hunt.status) }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <button onClick={() => setSelectedHunt(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '13px', padding: 0, marginBottom: '4px' }}>
+              ← Toutes les parties
+            </button>
+            <h2 style={{ fontWeight: 800, color: '#1f2937', margin: '0 0 4px', fontSize: '20px' }}>{hunt.name}</h2>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: statusColor(hunt.status) }}>{statusLabel(hunt.status)}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {hunt.status === 'idle' && (
+              <button onClick={() => huntAction('start')} disabled={loading}
+                style={{ ...btnPrimary, background: '#059669' }}>▶ Démarrer</button>
+            )}
+            {hunt.status === 'active' && (
+              <button onClick={() => huntAction('finish')} disabled={loading}
+                style={{ ...btnPrimary, background: '#6b7280' }}>■ Clore</button>
+            )}
+            <button onClick={() => huntAction('reset')} disabled={loading}
+              style={{ ...btnPrimary, background: '#dc2626' }}>↺ Reset</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Sous-navigation */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '2px solid #e5e7eb', paddingBottom: '0' }}>
+        {subTabs.map(([k, l]) => (
+          <button key={k} onClick={() => setSection(k)}
+            style={{ padding: '10px 18px', fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', borderBottom: section === k ? '3px solid #4f46e5' : '3px solid transparent', color: section === k ? '#4f46e5' : '#6b7280' }}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Étapes ── */}
+      {section === 'stages' && (
+        <div>
+          {stages.map((s, i) => (
+            <div key={s._id} style={{ ...card, borderLeft: '4px solid #818cf8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontWeight: 700, fontSize: '15px' }}>{s.order}. {s.label}</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setStageForm({ ...s })} style={{ ...btnPrimary, background: '#f3f4f6', color: '#374151', padding: '6px 12px', fontSize: '12px' }}>✏️ Éditer</button>
+                  <button onClick={() => deleteStage(s._id)} style={{ ...btnPrimary, background: '#fee2e2', color: '#dc2626', padding: '6px 12px', fontSize: '12px' }}>🗑</button>
+                </div>
+              </div>
+              <div style={{ fontSize: '12px', color: '#6b7280' }}>📍 {s.gpsLat}, {s.gpsLng} · rayon {s.radiusMeters}m</div>
+              {s.question && <div style={{ fontSize: '12px', color: '#374151', marginTop: '4px' }}>❓ {s.question}</div>}
+            </div>
+          ))}
+          {!stageForm && (
+            <button onClick={() => setStageForm({ ...emptyStageForm, order: stages.length + 1 })}
+              style={{ ...btnPrimary, width: '100%', padding: '12px', fontSize: '15px' }}>
+              + Ajouter une étape
+            </button>
+          )}
+          {stageForm && (
+            <div style={{ ...card, border: '2px solid #818cf8' }}>
+              <h3 style={{ fontWeight: 700, color: '#4f46e5', margin: '0 0 16px' }}>
+                {stageForm._id ? 'Modifier l\'étape' : 'Nouvelle étape'}
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Ordre</label>
+                    <input type="number" value={stageForm.order} onChange={e => setStageForm(f => ({ ...f, order: e.target.value }))} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Nom de la station</label>
+                    <input value={stageForm.label} onChange={e => setStageForm(f => ({ ...f, label: e.target.value }))} placeholder="ex: Le vieux chêne" style={inputStyle} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Latitude</label>
+                    <input type="number" step="any" value={stageForm.gpsLat} onChange={e => setStageForm(f => ({ ...f, gpsLat: e.target.value }))} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Longitude</label>
+                    <input type="number" step="any" value={stageForm.gpsLng} onChange={e => setStageForm(f => ({ ...f, gpsLng: e.target.value }))} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Rayon (m)</label>
+                    <input type="number" value={stageForm.radiusMeters} onChange={e => setStageForm(f => ({ ...f, radiusMeters: e.target.value }))} style={inputStyle} />
+                  </div>
+                </div>
+                <button onClick={useMyGPS} style={{ ...btnPrimary, background: '#0ea5e9', width: 'auto', alignSelf: 'flex-start' }}>
+                  📍 Utiliser ma position actuelle
+                </button>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Instructions d'activité</label>
+                  <textarea value={stageForm.activityInstructions} onChange={e => setStageForm(f => ({ ...f, activityInstructions: e.target.value }))}
+                    rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Ce que les équipes doivent faire sur place…" />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Question</label>
+                  <input value={stageForm.question} onChange={e => setStageForm(f => ({ ...f, question: e.target.value }))} style={inputStyle} placeholder="Question posée à l'équipe…" />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Réponse attendue</label>
+                  <input value={stageForm.answerExpected} onChange={e => setStageForm(f => ({ ...f, answerExpected: e.target.value }))} style={inputStyle} placeholder="Réponse correcte (insensible à la casse et aux accents)" />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Indice vers la prochaine étape</label>
+                  <textarea value={stageForm.nextClue} onChange={e => setStageForm(f => ({ ...f, nextClue: e.target.value }))}
+                    rows={2} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Texte narratif guidant vers la prochaine station…" />
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={saveStage} disabled={loading} style={btnPrimary}>
+                    {stageForm._id ? 'Sauvegarder' : 'Créer l\'étape'}
+                  </button>
+                  <button onClick={() => setStageForm(null)} style={{ ...btnPrimary, background: '#e5e7eb', color: '#374151' }}>Annuler</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Équipes ── */}
+      {section === 'teams' && (
+        <div>
+          <div style={card}>
+            <h3 style={{ fontWeight: 700, margin: '0 0 12px', color: '#1f2937' }}>Créer une équipe</h3>
+            {stages.length === 0 && (
+              <p style={{ color: '#f59e0b', fontSize: '13px', marginBottom: '10px' }}>
+                ⚠️ Ajoutez d'abord des étapes (onglet Étapes) avant de créer des équipes.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input value={newTeamName} onChange={e => setNewTeamName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && createTeam()}
+                placeholder="Nom de l'équipe…" style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={createTeam} disabled={loading || stages.length === 0} style={btnPrimary}>Créer</button>
+            </div>
+          </div>
+          {teams.length === 0 && (
+            <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucune équipe créée</p>
+          )}
+          {teams.map(t => (
+            <div key={t._id} style={{ ...card, borderLeft: '4px solid ' + statusColor(t.status) }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '15px' }}>{t.name}</div>
+                  <div style={{ marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    <span style={{ background: '#1f2937', color: 'white', borderRadius: '8px', padding: '4px 14px', fontSize: '20px', fontWeight: 800, letterSpacing: '4px' }}>
+                      {t.accessCode}
+                    </span>
+                    <span style={{ fontSize: '13px', color: '#6b7280', alignSelf: 'center' }}>
+                      Étape {t.currentStageIndex} / {t.stageOrder ? t.stageOrder.length : 0}
+                    </span>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: statusColor(t.status), alignSelf: 'center' }}>
+                      {t.status === 'finished' ? '✓ Terminé' : '▶ En jeu'}
+                    </span>
+                  </div>
+                </div>
+                <button onClick={() => deleteTeam(t._id)}
+                  style={{ ...btnPrimary, background: '#fee2e2', color: '#dc2626', padding: '7px 14px', fontSize: '13px' }}>🗑 Supprimer</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Scores ── */}
+      {section === 'score' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h3 style={{ fontWeight: 700, margin: 0 }}>Classement</h3>
+            <button onClick={() => loadScoreboard(selectedHunt._id)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: '13px' }}>↻ Actualiser</button>
+          </div>
+          {!scoreboard || scoreboard.teams.length === 0 ? (
+            <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucune équipe</p>
+          ) : (
+            <div style={{ background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead style={{ background: '#f9fafb' }}>
+                  <tr>
+                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>#</th>
+                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Équipe</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Étapes</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Temps total</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scoreboard.teams.map((t, i) => (
+                    <tr key={t.teamId} style={{ borderTop: '1px solid #f3f4f6', background: i === 0 && t.status === 'finished' ? '#fefce8' : 'white' }}>
+                      <td style={{ padding: '12px', fontWeight: 800, color: i === 0 ? '#d97706' : '#9ca3af', fontSize: '18px' }}>
+                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                      </td>
+                      <td style={{ padding: '12px', fontWeight: 700 }}>{t.name}</td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        {t.stagesCompleted} / {scoreboard.stages.length}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center', fontFamily: 'monospace', fontWeight: 600 }}>
+                        {fmtDuration(t.totalTime)}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        <span style={{ background: statusColor(t.status) + '22', color: statusColor(t.status), borderRadius: '20px', padding: '3px 10px', fontSize: '12px', fontWeight: 700 }}>
+                          {t.status === 'finished' ? 'Terminé' : 'En jeu'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function WeekendManager() {
   const [token, setToken] = useState(localStorage.getItem('weekendToken') || null);
   const [role, setRole] = useState(localStorage.getItem('weekendRole') || null);
+  const [teamName, setTeamName] = useState(localStorage.getItem('weekendTeamName') || null);
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [loginTab, setLoginTab] = useState('family'); // 'family' | 'team'
+  const [teamCode, setTeamCode] = useState('');
   const [activeTab, setActiveTab] = useState('intro');
   const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
   const [contentSaving, setContentSaving] = useState(false);
@@ -1071,11 +1779,42 @@ export default function WeekendManager() {
     setLoading(false);
   };
 
+  // ── Login équipe ──
+  const handleTeamLogin = async () => {
+    if (!teamCode.trim()) { setLoginError('Entrez un code à 4 chiffres'); return; }
+    setLoading(true);
+    setLoginError('');
+    try {
+      const r = await fetch(API_URL + '/hunt/team/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessCode: teamCode.trim() }),
+      });
+      const d = await r.json();
+      if (d.token) {
+        setToken(d.token);
+        setRole('team');
+        setTeamName(d.team.name);
+        localStorage.setItem('weekendToken', d.token);
+        localStorage.setItem('weekendRole', 'team');
+        localStorage.setItem('weekendTeamName', d.team.name);
+        setTeamCode('');
+      } else {
+        setLoginError(d.error || 'Code invalide');
+      }
+    } catch (e) {
+      setLoginError('Erreur de connexion : ' + e.message);
+    }
+    setLoading(false);
+  };
+
   const handleLogout = () => {
     setToken(null);
     setRole(null);
+    setTeamName(null);
     localStorage.removeItem('weekendToken');
     localStorage.removeItem('weekendRole');
+    localStorage.removeItem('weekendTeamName');
     setGuests([]);
   };
 
@@ -1273,60 +2012,76 @@ export default function WeekendManager() {
           position: 'relative',
           zIndex: 1,
         }}>
-          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
             <div style={{ fontSize: '48px', marginBottom: '8px' }}>🎉</div>
-            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1f2937', margin: '0 0 6px' }}>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1f2937', margin: '0 0 4px' }}>
               50 ans d'Étienne !
             </h1>
-            <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0 }}>
-              Entrez le mot de passe pour accéder au site
-            </p>
+          </div>
+          {/* Sélecteur famille / équipe */}
+          <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '2px solid #e5e7eb', marginBottom: '20px' }}>
+            {[['family', '🏠 Famille'], ['team', '🎯 Équipe']].map(([k, l]) => (
+              <button key={k} onClick={() => { setLoginTab(k); setLoginError(''); }}
+                style={{ flex: 1, padding: '10px', fontWeight: 700, fontSize: '14px', border: 'none', cursor: 'pointer',
+                  background: loginTab === k ? '#4f46e5' : 'transparent',
+                  color: loginTab === k ? 'white' : '#6b7280' }}>
+                {l}
+              </button>
+            ))}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <input
-              type="password"
-              placeholder="Mot de passe"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyPress={e => e.key === 'Enter' && handleLogin()}
-              style={{
-                border: '2px solid #e5e7eb',
-                borderRadius: '10px',
-                padding: '13px 16px',
-                fontSize: '15px',
-                width: '100%',
-                outline: 'none',
-                transition: 'border-color 0.2s',
-                boxSizing: 'border-box',
-              }}
-            />
-            {loginError && (
-              <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>
-                {loginError}
-              </p>
+            {loginTab === 'family' ? (
+              <>
+                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
+                  Entrez le mot de passe pour accéder au site
+                </p>
+                <input
+                  type="password"
+                  placeholder="Mot de passe"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyPress={e => e.key === 'Enter' && handleLogin()}
+                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '15px', width: '100%', outline: 'none', boxSizing: 'border-box' }}
+                />
+                {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
+                <button onClick={handleLogin} disabled={loading}
+                  style={{ background: 'linear-gradient(135deg, #7c3aed, #db2777)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
+                  {loading ? 'Connexion...' : 'Accéder au site'}
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
+                  Entrez le code à 4 chiffres de votre équipe
+                </p>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="0000"
+                  value={teamCode}
+                  onChange={e => setTeamCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  onKeyPress={e => e.key === 'Enter' && handleTeamLogin()}
+                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '32px', fontWeight: 800, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center', letterSpacing: '12px' }}
+                />
+                {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
+                <button onClick={handleTeamLogin} disabled={loading}
+                  style={{ background: 'linear-gradient(135deg, #059669, #0ea5e9)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(5,150,105,0.35)' }}>
+                  {loading ? 'Connexion...' : '🎯 Rejoindre la chasse'}
+                </button>
+              </>
             )}
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              style={{
-                background: 'linear-gradient(135deg, #7c3aed, #db2777)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '10px',
-                padding: '13px',
-                fontWeight: 700,
-                fontSize: '15px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
-                boxShadow: '0 4px 14px rgba(124,58,237,0.35)',
-              }}
-            >
-              {loading ? 'Connexion...' : 'Accéder au site'}
-            </button>
           </div>
         </div>
       </div>
     );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // VUE ÉQUIPE (chasse au trésor)
+  // ═══════════════════════════════════════════════════════
+  if (role === 'team') {
+    return <TeamApp token={token} teamName={teamName} onLogout={handleLogout} />;
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1395,6 +2150,7 @@ export default function WeekendManager() {
             ['guests',   `👨‍👩‍👧 Invités (${attendingGuests.length})`],
             ['rooms',    '🛏️ Chambres'],
             ['meals',    '🍽️ Repas'],
+            ['hunt',     '🎯 Chasse'],
           ].map(([t, l]) => (
             <button
               key={t}
@@ -1680,6 +2436,11 @@ export default function WeekendManager() {
               );
             })}
           </div>
+        )}
+
+        {/* ── CHASSE admin ── */}
+        {activeTab === 'hunt' && (
+          <AdminHuntTab token={token} />
         )}
 
       </main>
