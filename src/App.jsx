@@ -1735,6 +1735,7 @@ function AdminHuntTab({ token }) {
       {/* ── Équipes ── */}
       {section === 'teams' && (
         <div>
+          {/* Créer une équipe */}
           <div style={card}>
             <h3 style={{ fontWeight: 700, margin: '0 0 12px', color: '#1f2937' }}>Créer une équipe</h3>
             {stages.length === 0 && (
@@ -1749,31 +1750,143 @@ function AdminHuntTab({ token }) {
               <button onClick={createTeam} disabled={loading || stages.length === 0} style={btnPrimary}>Créer</button>
             </div>
           </div>
+
+          {/* Vue Live — position actuelle de chaque équipe */}
+          {teams.length > 0 && (
+            <div style={{ ...card, borderLeft: '4px solid #8b5cf6' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h3 style={{ fontWeight: 700, margin: 0, color: '#6d28d9' }}>🔴 Suivi en temps réel</h3>
+                <button onClick={() => loadHuntData(selectedHunt._id)}
+                  style={{ ...btnPrimary, padding: '5px 12px', fontSize: '12px', background: '#f3f4f6', color: '#374151' }}>↻</button>
+              </div>
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {teams.map(t => {
+                  const currentStageId = t.stageOrder && t.stageOrder[t.currentStageIndex];
+                  const currentStageName = stages.find(s => s._id === currentStageId || String(s._id) === String(currentStageId));
+                  return (
+                    <div key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#faf5ff', borderRadius: '8px', padding: '10px 12px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '14px', minWidth: '100px' }}>{t.name}</span>
+                      <span style={{ fontSize: '12px', color: '#6b7280' }}>
+                        {t.status === 'finished'
+                          ? <span style={{ color: '#059669', fontWeight: 700 }}>✓ Terminé !</span>
+                          : currentStageName
+                            ? <>📍 <strong>{currentStageName.label}</strong> <span style={{ color: '#9ca3af' }}>({t.currentStageIndex + 1}/{t.stageOrder.length})</span></>
+                            : <span style={{ color: '#9ca3af' }}>En attente…</span>
+                        }
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Cartes équipes avec ordre + contrôles */}
           {teams.length === 0 && (
             <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucune équipe créée</p>
           )}
-          {teams.map(t => (
-            <div key={t._id} style={{ ...card, borderLeft: '4px solid ' + statusColor(t.status) }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '15px' }}>{t.name}</div>
-                  <div style={{ marginTop: '4px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                    <span style={{ background: '#1f2937', color: 'white', borderRadius: '8px', padding: '4px 14px', fontSize: '20px', fontWeight: 800, letterSpacing: '4px' }}>
-                      {t.accessCode}
-                    </span>
-                    <span style={{ fontSize: '13px', color: '#6b7280', alignSelf: 'center' }}>
-                      Étape {t.currentStageIndex} / {t.stageOrder ? t.stageOrder.length : 0}
-                    </span>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: statusColor(t.status), alignSelf: 'center' }}>
-                      {t.status === 'finished' ? '✓ Terminé' : '▶ En jeu'}
-                    </span>
+          {teams.map(t => {
+            const resolvedOrder = (t.stageOrder || []).map(id =>
+              stages.find(s => String(s._id) === String(id))
+            );
+            return (
+              <div key={t._id} style={{ ...card, borderLeft: '4px solid ' + statusColor(t.status) }}>
+                {/* Header équipe */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '16px', marginBottom: '6px' }}>{t.name}</div>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ background: '#1f2937', color: 'white', borderRadius: '8px', padding: '4px 14px', fontSize: '20px', fontWeight: 800, letterSpacing: '4px' }}>
+                        {t.accessCode}
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: statusColor(t.status) }}>
+                        {t.status === 'finished' ? '✓ Terminé' : `▶ Étape ${t.currentStageIndex + 1}/${t.stageOrder ? t.stageOrder.length : 0}`}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm('Régénérer un ordre aléatoire pour ' + t.name + ' ?')) return;
+                        setLoading(true);
+                        await fetch(API_URL + '/hunt/' + selectedHunt._id + '/teams/' + t._id + '/shuffle', { method: 'POST', headers: th });
+                        await loadHuntData(selectedHunt._id);
+                        setLoading(false);
+                      }}
+                      style={{ ...btnPrimary, background: '#8b5cf6', padding: '7px 12px', fontSize: '13px' }}
+                      title="Régénérer l'ordre aléatoire"
+                    >🔀</button>
+                    <button onClick={() => deleteTeam(t._id)}
+                      style={{ ...btnPrimary, background: '#fee2e2', color: '#dc2626', padding: '7px 12px', fontSize: '13px' }}>🗑</button>
                   </div>
                 </div>
-                <button onClick={() => deleteTeam(t._id)}
-                  style={{ ...btnPrimary, background: '#fee2e2', color: '#dc2626', padding: '7px 14px', fontSize: '13px' }}>🗑 Supprimer</button>
+
+                {/* Ordre des étapes avec flèches */}
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Ordre des étapes
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {resolvedOrder.map((stage, idx) => {
+                    const isCurrentOrDone = idx < t.currentStageIndex;
+                    const isCurrent = idx === t.currentStageIndex && t.status !== 'finished';
+                    return (
+                      <div key={idx} style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        background: isCurrent ? '#fef3c7' : isCurrentOrDone ? '#f0fdf4' : '#f9fafb',
+                        borderRadius: '8px', padding: '7px 10px',
+                        border: isCurrent ? '1px solid #f59e0b' : '1px solid transparent',
+                      }}>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: isCurrent ? '#d97706' : isCurrentOrDone ? '#059669' : '#9ca3af', minWidth: '20px' }}>
+                          {isCurrentOrDone ? '✓' : isCurrent ? '▶' : idx + 1}
+                        </span>
+                        <span style={{ flex: 1, fontSize: '13px', fontWeight: isCurrent ? 700 : 400, color: '#1f2937' }}>
+                          {stage ? stage.label : <span style={{ color: '#dc2626' }}>Étape introuvable</span>}
+                        </span>
+                        {/* Flèches de réordonnancement (seulement si partie pas encore démarrée) */}
+                        {hunt.status === 'idle' && (
+                          <div style={{ display: 'flex', gap: '2px' }}>
+                            <button
+                              disabled={idx === 0}
+                              onClick={async () => {
+                                const newOrder = [...(t.stageOrder || [])];
+                                [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
+                                setLoading(true);
+                                await fetch(API_URL + '/hunt/' + selectedHunt._id + '/teams/' + t._id + '/order', {
+                                  method: 'PUT', headers: th, body: JSON.stringify({ stageOrder: newOrder }),
+                                });
+                                await loadHuntData(selectedHunt._id);
+                                setLoading(false);
+                              }}
+                              style={{ background: idx === 0 ? '#f3f4f6' : '#e0e7ff', color: idx === 0 ? '#d1d5db' : '#4338ca', border: 'none', borderRadius: '4px', width: '24px', height: '24px', cursor: idx === 0 ? 'default' : 'pointer', fontWeight: 700, fontSize: '13px' }}
+                            >↑</button>
+                            <button
+                              disabled={idx === resolvedOrder.length - 1}
+                              onClick={async () => {
+                                const newOrder = [...(t.stageOrder || [])];
+                                [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
+                                setLoading(true);
+                                await fetch(API_URL + '/hunt/' + selectedHunt._id + '/teams/' + t._id + '/order', {
+                                  method: 'PUT', headers: th, body: JSON.stringify({ stageOrder: newOrder }),
+                                });
+                                await loadHuntData(selectedHunt._id);
+                                setLoading(false);
+                              }}
+                              style={{ background: idx === resolvedOrder.length - 1 ? '#f3f4f6' : '#e0e7ff', color: idx === resolvedOrder.length - 1 ? '#d1d5db' : '#4338ca', border: 'none', borderRadius: '4px', width: '24px', height: '24px', cursor: idx === resolvedOrder.length - 1 ? 'default' : 'pointer', fontWeight: 700, fontSize: '13px' }}
+                            >↓</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {hunt.status !== 'idle' && (
+                  <p style={{ fontSize: '11px', color: '#9ca3af', margin: '8px 0 0' }}>
+                    ℹ️ Réordonnancement disponible uniquement avant le démarrage de la partie.
+                  </p>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
