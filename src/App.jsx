@@ -1288,10 +1288,10 @@ function TeamApp({ token, teamName, onLogout }) {
         <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>🧭</div>
         <Progress />
         <h3 style={{ color: '#1e40af', textAlign: 'center', margin: '0 0 16px' }}>En route !</h3>
-        {state && state.previousNextClue && (
+        {state && state.currentClue && (
           <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: '#92400e', marginBottom: '6px', textTransform: 'uppercase' }}>🗺️ Votre indice</div>
-            <p style={{ margin: 0, fontSize: '16px', color: '#78350f', lineHeight: 1.5 }}>{state.previousNextClue}</p>
+            <p style={{ margin: 0, fontSize: '16px', color: '#78350f', lineHeight: 1.5 }}>{state.currentClue}</p>
           </div>
         )}
         {gpsError ? (
@@ -1442,7 +1442,7 @@ function AdminHuntTab({ token }) {
 
   const emptyStageForm = {
     label: '', gpsLat: '', gpsLng: '', radiusMeters: 15,
-    activityInstructions: '', question: '', answerExpected: '', nextClue: '', order: 1,
+    activityInstructions: '', question: '', answerExpected: '', clueToReach: '', order: 1,
   };
 
   const loadHunts = async () => {
@@ -1716,9 +1716,9 @@ function AdminHuntTab({ token }) {
                   <input value={stageForm.answerExpected} onChange={e => setStageForm(f => ({ ...f, answerExpected: e.target.value }))} style={inputStyle} placeholder="Réponse correcte (insensible à la casse et aux accents)" />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>Indice vers la prochaine étape</label>
-                  <textarea value={stageForm.nextClue} onChange={e => setStageForm(f => ({ ...f, nextClue: e.target.value }))}
-                    rows={2} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Texte narratif guidant vers la prochaine station…" />
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '3px' }}>🗺️ Indice pour trouver CETTE étape</label>
+                  <textarea value={stageForm.clueToReach} onChange={e => setStageForm(f => ({ ...f, clueToReach: e.target.value }))}
+                    rows={2} style={{ ...inputStyle, resize: 'vertical' }} placeholder="Comment les équipes doivent trouver cette station… (affiché dès le départ pour l'étape 1)" />
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={saveStage} disabled={loading} style={btnPrimary}>
