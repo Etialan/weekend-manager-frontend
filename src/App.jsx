@@ -1181,54 +1181,44 @@ function TeamApp({ token, teamName, onLogout }) {
   });
 
   // ── Bouton photo/vidéo réutilisable ──
-  const MediaBtn = () => (
+  const MediaBtn = () => {
+    const btnBase = {
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '13px 8px', fontSize: '15px', fontWeight: 700,
+      background: uploading ? '#e5e7eb' : '#f59e0b',
+      color: uploading ? '#9ca3af' : 'white',
+      borderRadius: '12px', minHeight: '50px', userSelect: 'none',
+    };
+    const inputOverlay = {
+      position: 'absolute', inset: 0, opacity: 0,
+      width: '100%', height: '100%', cursor: 'pointer',
+    };
+    return (
     <div style={{ marginTop: '12px' }}>
-      {/* Input galerie — sans capture */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*,video/*"
-        onChange={handleMediaUpload}
-        style={{ display: 'none' }}
-      />
-      {/* Input caméra — avec capture="environment" */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*,video/*"
-        capture="environment"
-        onChange={handleMediaUpload}
-        style={{ display: 'none' }}
-      />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-        <button
-          onClick={() => cameraInputRef.current && cameraInputRef.current.click()}
-          disabled={uploading}
-          style={{
-            padding: '13px 8px', fontSize: '15px', fontWeight: 700,
-            background: uploading ? '#e5e7eb' : '#f59e0b',
-            color: uploading ? '#9ca3af' : 'white',
-            border: 'none', borderRadius: '12px',
-            cursor: uploading ? 'not-allowed' : 'pointer',
-            minHeight: '50px',
-          }}
-        >
+        {/* Bouton Caméra — input superposé, le doigt touche directement le natif */}
+        <div style={{ position: 'relative', ...btnBase }}>
           📷 Caméra
-        </button>
-        <button
-          onClick={() => fileInputRef.current && fileInputRef.current.click()}
-          disabled={uploading}
-          style={{
-            padding: '13px 8px', fontSize: '15px', fontWeight: 700,
-            background: uploading ? '#e5e7eb' : '#f59e0b',
-            color: uploading ? '#9ca3af' : 'white',
-            border: 'none', borderRadius: '12px',
-            cursor: uploading ? 'not-allowed' : 'pointer',
-            minHeight: '50px',
-          }}
-        >
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleMediaUpload}
+            disabled={uploading}
+            style={inputOverlay}
+          />
+        </div>
+        {/* Bouton Galerie — input superposé sans capture */}
+        <div style={{ position: 'relative', ...btnBase }}>
           🖼️ Galerie
-        </button>
+          <input
+            type="file"
+            accept="image/*,video/*"
+            onChange={handleMediaUpload}
+            disabled={uploading}
+            style={inputOverlay}
+          />
+        </div>
       </div>
       {uploading && (
         <p style={{ textAlign: 'center', fontSize: '13px', color: '#6b7280', margin: '6px 0 0' }}>
@@ -1246,7 +1236,8 @@ function TeamApp({ token, teamName, onLogout }) {
         </p>
       )}
     </div>
-  );
+    );
+  };
 
   const Progress = () => state ? (
     <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px', textAlign: 'center' }}>
