@@ -1317,57 +1317,74 @@ function TeamApp({ token, teamName, onLogout }) {
   );
 
   if (view === 'activite') return (
-    <div style={screenStyle}>
-      <div style={cardStyle}>
-        <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>🎯</div>
-        <Progress />
+    <div style={{ ...screenStyle, justifyContent: 'flex-start', paddingTop: '24px', paddingBottom: '24px' }}>
+      <div style={{ ...cardStyle, maxWidth: '480px' }}>
+        <div style={{ fontSize: '40px', textAlign: 'center', marginBottom: '4px' }}>🎯</div>
         <h3 style={{ color: '#065f46', textAlign: 'center', margin: '0 0 16px' }}>Vous êtes arrivés !</h3>
-        <div style={{ background: '#ecfdf5', border: '2px solid #6ee7b7', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: '#065f46', marginBottom: '8px', textTransform: 'uppercase' }}>📋 Activité</div>
+        <Progress />
+
+        {/* ── Section 1 : Activité ── */}
+        <div style={{ background: '#ecfdf5', border: '2px solid #6ee7b7', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <span style={{ background: '#059669', color: 'white', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '13px', flexShrink: 0 }}>1</span>
+            <span style={{ fontWeight: 800, fontSize: '15px', color: '#065f46', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Activité</span>
+          </div>
           <p style={{ margin: 0, fontSize: '16px', color: '#1f2937', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
             {state && state.currentStage && state.currentStage.activityInstructions}
           </p>
         </div>
-        <MediaBtn />
-        <button style={btn('#059669', '12px')} onClick={() => setView('question')}>Répondre à la question →</button>
-      </div>
-    </div>
-  );
 
-  if (view === 'question') return (
-    <div style={screenStyle}>
-      <div style={cardStyle}>
-        <div style={{ fontSize: '50px', textAlign: 'center', marginBottom: '12px' }}>❓</div>
-        <Progress />
-        <div style={{ background: '#eff6ff', border: '2px solid #93c5fd', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: '#1e40af', marginBottom: '8px', textTransform: 'uppercase' }}>❓ Question</div>
-          <p style={{ margin: 0, fontSize: '16px', color: '#1f2937', lineHeight: 1.6 }}>
+        {/* ── Section 2 : Photos ── */}
+        <div style={{ background: '#fffbeb', border: '2px solid #fcd34d', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <span style={{ background: '#f59e0b', color: 'white', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '13px', flexShrink: 0 }}>2</span>
+            <span style={{ fontWeight: 800, fontSize: '15px', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Déposer les photos</span>
+          </div>
+          <MediaBtn />
+        </div>
+
+        {/* ── Section 3 : Question ── */}
+        <div style={{ background: '#eff6ff', border: '2px solid #93c5fd', borderRadius: '14px', padding: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <span style={{ background: '#2563eb', color: 'white', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '13px', flexShrink: 0 }}>3</span>
+            <span style={{ fontWeight: 800, fontSize: '15px', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>La question !</span>
+          </div>
+          <p style={{ margin: '0 0 12px', fontSize: '16px', color: '#1f2937', lineHeight: 1.6 }}>
             {state && state.currentStage && state.currentStage.question}
           </p>
+          {answerResult && !answerResult.correct && (
+            <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '10px', padding: '10px', marginBottom: '10px' }}>
+              <p style={{ color: '#dc2626', margin: 0, fontWeight: 600, fontSize: '14px' }}>
+                ❌ Mauvaise réponse ({answerResult.attempts} tentative{answerResult.attempts > 1 ? 's' : ''})
+              </p>
+            </div>
+          )}
+          <input
+            type="text"
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAnswer()}
+            placeholder="Votre réponse…"
+            style={{
+              width: '100%', padding: '14px', fontSize: '18px',
+              border: '2px solid #bfdbfe', borderRadius: '10px',
+              outline: 'none', boxSizing: 'border-box', marginBottom: '8px',
+            }}
+          />
+          <button
+            onClick={handleAnswer}
+            disabled={submitting}
+            style={{
+              width: '100%', padding: '14px', fontSize: '17px', fontWeight: 700,
+              background: submitting ? '#e5e7eb' : '#2563eb', color: 'white',
+              border: 'none', borderRadius: '10px', cursor: submitting ? 'not-allowed' : 'pointer',
+              minHeight: '50px',
+            }}
+          >
+            {submitting ? '…' : 'Valider ✓'}
+          </button>
         </div>
-        {answerResult && !answerResult.correct && (
-          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '10px', padding: '12px', marginBottom: '12px' }}>
-            <p style={{ color: '#dc2626', margin: 0, fontWeight: 600, fontSize: '15px' }}>
-              ❌ Mauvaise réponse ({answerResult.attempts} tentative{answerResult.attempts > 1 ? 's' : ''})
-            </p>
-          </div>
-        )}
-        <input
-          type="text"
-          value={answer}
-          onChange={e => setAnswer(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleAnswer()}
-          placeholder="Votre réponse…"
-          style={{
-            width: '100%', padding: '14px', fontSize: '18px',
-            border: '2px solid #d1d5db', borderRadius: '10px',
-            outline: 'none', boxSizing: 'border-box',
-          }}
-        />
-        <button style={btn('#2563eb')} onClick={handleAnswer} disabled={submitting}>
-          {submitting ? '…' : 'Valider ✓'}
-        </button>
-        <button style={btn('#6b7280', '8px')} onClick={() => setView('activite')}>← Retour à l'activité</button>
+
       </div>
     </div>
   );
