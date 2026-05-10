@@ -1006,17 +1006,25 @@ function TeamApp({ token, teamName, onLogout }) {
   const [networkError, setNetworkError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadedMedia, setUploadedMedia] = useState([]); // médias envoyés cette session
+  const [uploadedMedia, setUploadedMedia] = useState([]);
+  const [uploadStatus, setUploadStatus] = useState(null); // null | 'ok' | 'error'
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = React.useRef(null);
 
   const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
 
   // ── Upload Cloudinary + sauvegarde backend ──
   const handleMediaUpload = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files && e.target.files[0];
     if (!file) return;
-    // Limite : 50 MB
-    if (file.size > 50 * 1024 * 1024) { alert('Fichier trop volumineux (max 50 MB)'); return; }
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError('Fichier trop volumineux (max 50 MB)');
+      setUploadStatus('error');
+      return;
+    }
     setUploading(true);
+    setUploadStatus(null);
+    setUploadError('');
     try {
       // 1. Upload vers Cloudinary
       const fd = new FormData();
@@ -1026,7 +1034,10 @@ function TeamApp({ token, teamName, onLogout }) {
         'https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/auto/upload',
         { method: 'POST', body: fd }
       );
-      if (!cldRes.ok) throw new Error('Échec upload Cloudinary');
+      if (!cldRes.ok) {
+        const errBody = await cldRes.json().catch(() => ({}));
+        throw new Error(errBody.error ? errBody.error.message : 'Échec upload Cloudinary (' + cldRes.status + ')');
+      }
       const cld = await cldRes.json();
 
       // 2. Enregistrer l'URL dans notre backend
@@ -1044,13 +1055,14 @@ function TeamApp({ token, teamName, onLogout }) {
         }),
       });
       setUploadedMedia(m => [...m, { url: cld.secure_url, type: cld.resource_type }]);
-      alert('📸 Photo/vidéo envoyée !');
+      setUploadStatus('ok');
     } catch (err) {
-      alert('Erreur : ' + err.message);
+      setUploadError(err.message);
+      setUploadStatus('error');
     }
     setUploading(false);
-    // Reset input pour permettre le même fichier
-    e.target.value = '';
+    // Reset pour permettre le même fichier
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const loadState = async () => {
@@ -1170,26 +1182,36 @@ function TeamApp({ token, teamName, onLogout }) {
   // ── Bouton photo/vidéo réutilisable ──
   const MediaBtn = () => (
     <div style={{ marginTop: '12px' }}>
-      <label style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-        width: '100%', padding: '13px', fontSize: '16px', fontWeight: 700,
-        background: uploading ? '#e5e7eb' : '#f59e0b', color: uploading ? '#9ca3af' : 'white',
-        border: 'none', borderRadius: '12px', cursor: uploading ? 'not-allowed' : 'pointer',
-        minHeight: '50px', boxSizing: 'border-box',
-      }}>
-        <input
-          type="file"
-          accept="image/*,video/*"
-          capture="environment"
-          onChange={handleMediaUpload}
-          disabled={uploading}
-          style={{ display: 'none' }}
-        />
+      {/* Input caché — sans capture="environment" pour compatibilité Android */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        onChange={handleMediaUpload}
+        style={{ display: 'none' }}
+      />
+      <button
+        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+        disabled={uploading}
+        style={{
+          width: '100%', padding: '13px', fontSize: '16px', fontWeight: 700,
+          background: uploading ? '#e5e7eb' : '#f59e0b',
+          color: uploading ? '#9ca3af' : 'white',
+          border: 'none', borderRadius: '12px',
+          cursor: uploading ? 'not-allowed' : 'pointer',
+          minHeight: '50px',
+        }}
+      >
         {uploading ? '⏳ Envoi en cours…' : '📸 Envoyer une photo / vidéo'}
-      </label>
-      {uploadedMedia.length > 0 && (
-        <p style={{ textAlign: 'center', fontSize: '12px', color: '#059669', margin: '6px 0 0' }}>
-          ✓ {uploadedMedia.length} média{uploadedMedia.length > 1 ? 's' : ''} envoyé{uploadedMedia.length > 1 ? 's' : ''}
+      </button>
+      {uploadStatus === 'ok' && (
+        <p style={{ textAlign: 'center', fontSize: '13px', color: '#059669', margin: '6px 0 0', fontWeight: 600 }}>
+          ✅ Envoyé ! ({uploadedMedia.length} média{uploadedMedia.length > 1 ? 's' : ''} cette session)
+        </p>
+      )}
+      {uploadStatus === 'error' && (
+        <p style={{ textAlign: 'center', fontSize: '13px', color: '#dc2626', margin: '6px 0 0', fontWeight: 600 }}>
+          ❌ Erreur : {uploadError}
         </p>
       )}
     </div>
