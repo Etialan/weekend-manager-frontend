@@ -1010,6 +1010,7 @@ function TeamApp({ token, teamName, onLogout }) {
   const [uploadStatus, setUploadStatus] = useState(null); // null | 'ok' | 'error'
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = React.useRef(null);
+  const cameraInputRef = React.useRef(null);
 
   const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
 
@@ -1182,7 +1183,7 @@ function TeamApp({ token, teamName, onLogout }) {
   // ── Bouton photo/vidéo réutilisable ──
   const MediaBtn = () => (
     <div style={{ marginTop: '12px' }}>
-      {/* Input caché — sans capture="environment" pour compatibilité Android */}
+      {/* Input galerie — sans capture */}
       <input
         ref={fileInputRef}
         type="file"
@@ -1190,20 +1191,50 @@ function TeamApp({ token, teamName, onLogout }) {
         onChange={handleMediaUpload}
         style={{ display: 'none' }}
       />
-      <button
-        onClick={() => fileInputRef.current && fileInputRef.current.click()}
-        disabled={uploading}
-        style={{
-          width: '100%', padding: '13px', fontSize: '16px', fontWeight: 700,
-          background: uploading ? '#e5e7eb' : '#f59e0b',
-          color: uploading ? '#9ca3af' : 'white',
-          border: 'none', borderRadius: '12px',
-          cursor: uploading ? 'not-allowed' : 'pointer',
-          minHeight: '50px',
-        }}
-      >
-        {uploading ? '⏳ Envoi en cours…' : '📸 Envoyer une photo / vidéo'}
-      </button>
+      {/* Input caméra — avec capture="environment" */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        onChange={handleMediaUpload}
+        style={{ display: 'none' }}
+      />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        <button
+          onClick={() => cameraInputRef.current && cameraInputRef.current.click()}
+          disabled={uploading}
+          style={{
+            padding: '13px 8px', fontSize: '15px', fontWeight: 700,
+            background: uploading ? '#e5e7eb' : '#f59e0b',
+            color: uploading ? '#9ca3af' : 'white',
+            border: 'none', borderRadius: '12px',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            minHeight: '50px',
+          }}
+        >
+          📷 Caméra
+        </button>
+        <button
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          disabled={uploading}
+          style={{
+            padding: '13px 8px', fontSize: '15px', fontWeight: 700,
+            background: uploading ? '#e5e7eb' : '#f59e0b',
+            color: uploading ? '#9ca3af' : 'white',
+            border: 'none', borderRadius: '12px',
+            cursor: uploading ? 'not-allowed' : 'pointer',
+            minHeight: '50px',
+          }}
+        >
+          🖼️ Galerie
+        </button>
+      </div>
+      {uploading && (
+        <p style={{ textAlign: 'center', fontSize: '13px', color: '#6b7280', margin: '6px 0 0' }}>
+          ⏳ Envoi en cours…
+        </p>
+      )}
       {uploadStatus === 'ok' && (
         <p style={{ textAlign: 'center', fontSize: '13px', color: '#059669', margin: '6px 0 0', fontWeight: 600 }}>
           ✅ Envoyé ! ({uploadedMedia.length} média{uploadedMedia.length > 1 ? 's' : ''} cette session)
