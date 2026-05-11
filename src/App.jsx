@@ -1588,18 +1588,32 @@ function AdminHuntTab({ token }) {
         </div>
         {hunts.length === 0 && <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucune partie créée</p>}
         {hunts.map(h => (
-          <div key={h._id} onClick={() => setSelectedHunt(h)}
-            style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '14px 18px', marginBottom: '10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          <div key={h._id}
+            style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '14px 18px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
-            <div>
+            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setSelectedHunt(h)}>
               <div style={{ fontWeight: 700, fontSize: '15px' }}>{h.name}</div>
               <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>
                 {new Date(h.createdAt).toLocaleDateString('fr-FR')}
               </div>
             </div>
-            <span style={{ background: statusColor(h.status) + '22', color: statusColor(h.status), borderRadius: '20px', padding: '4px 12px', fontSize: '12px', fontWeight: 700 }}>
-              {statusLabel(h.status)}
-            </span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ background: statusColor(h.status) + '22', color: statusColor(h.status), borderRadius: '20px', padding: '4px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }} onClick={() => setSelectedHunt(h)}>
+                {statusLabel(h.status)}
+              </span>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!window.confirm('Supprimer la partie "' + h.name + '" et tout ce qui lui est lié (étapes, équipes, scores) ?\n\nAttention : les photos Cloudinary ne seront PAS supprimées.')) return;
+                  setLoading(true);
+                  await fetch(API_URL + '/hunt/' + h._id, { method: 'DELETE', headers: th });
+                  await loadHunts();
+                  setLoading(false);
+                }}
+                style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}
+                title="Supprimer cette partie"
+              >🗑</button>
+            </div>
           </div>
         ))}
       </div>
