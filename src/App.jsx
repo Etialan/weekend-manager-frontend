@@ -996,6 +996,65 @@ function fmtDuration(ms) {
 }
 
 // ─── Interface Joueur (role=team) ─────────────────────────────────────────────
+// ── Composant MediaBtn — défini EN DEHORS de TeamApp pour éviter le remontage à chaque re-render GPS ──
+function MediaBtn({ uploading, uploadStatus, uploadError, uploadedMedia, onUpload }) {
+  const btnBase = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '13px 8px', fontSize: '15px', fontWeight: 700,
+    background: uploading ? '#e5e7eb' : '#f59e0b',
+    color: uploading ? '#9ca3af' : 'white',
+    borderRadius: '12px', minHeight: '50px', userSelect: 'none',
+  };
+  const inputOverlay = {
+    position: 'absolute', inset: 0, opacity: 0,
+    width: '100%', height: '100%', cursor: 'pointer',
+  };
+  return (
+    <div style={{ marginTop: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        {/* Bouton Caméra — input superposé, le doigt touche directement le natif */}
+        <div style={{ position: 'relative', ...btnBase }}>
+          📷 Caméra
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onUpload}
+            disabled={uploading}
+            style={inputOverlay}
+          />
+        </div>
+        {/* Bouton Galerie — input superposé sans capture */}
+        <div style={{ position: 'relative', ...btnBase }}>
+          🖼️ Galerie
+          <input
+            type="file"
+            accept="image/*,video/*"
+            onChange={onUpload}
+            disabled={uploading}
+            style={inputOverlay}
+          />
+        </div>
+      </div>
+      {uploading && (
+        <p style={{ textAlign: 'center', fontSize: '13px', color: '#6b7280', margin: '6px 0 0' }}>
+          ⏳ Envoi en cours…
+        </p>
+      )}
+      {uploadStatus === 'ok' && (
+        <p style={{ textAlign: 'center', fontSize: '13px', color: '#059669', margin: '6px 0 0', fontWeight: 600 }}>
+          ✅ Envoyé ! ({uploadedMedia.length} média{uploadedMedia.length > 1 ? 's' : ''} cette session)
+        </p>
+      )}
+      {uploadStatus === 'error' && (
+        <p style={{ textAlign: 'center', fontSize: '14px', color: '#dc2626', margin: '8px 0 0', fontWeight: 600, background: '#fef2f2', borderRadius: '8px', padding: '10px' }}>
+          ❌ Erreur : {uploadError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function TeamApp({ token, teamName, onLogout }) {
   const [state, setState] = useState(null);
   const [view, setView] = useState('loading');
@@ -1180,64 +1239,6 @@ function TeamApp({ token, teamName, onLogout }) {
     cursor: 'pointer', marginTop: mt, minHeight: '54px',
   });
 
-  // ── Bouton photo/vidéo réutilisable ──
-  const MediaBtn = () => {
-    const btnBase = {
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '13px 8px', fontSize: '15px', fontWeight: 700,
-      background: uploading ? '#e5e7eb' : '#f59e0b',
-      color: uploading ? '#9ca3af' : 'white',
-      borderRadius: '12px', minHeight: '50px', userSelect: 'none',
-    };
-    const inputOverlay = {
-      position: 'absolute', inset: 0, opacity: 0,
-      width: '100%', height: '100%', cursor: 'pointer',
-    };
-    return (
-    <div style={{ marginTop: '12px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-        {/* Bouton Caméra — input superposé, le doigt touche directement le natif */}
-        <div style={{ position: 'relative', ...btnBase }}>
-          📷 Caméra
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleMediaUpload}
-            disabled={uploading}
-            style={inputOverlay}
-          />
-        </div>
-        {/* Bouton Galerie — input superposé sans capture */}
-        <div style={{ position: 'relative', ...btnBase }}>
-          🖼️ Galerie
-          <input
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleMediaUpload}
-            disabled={uploading}
-            style={inputOverlay}
-          />
-        </div>
-      </div>
-      {uploading && (
-        <p style={{ textAlign: 'center', fontSize: '13px', color: '#6b7280', margin: '6px 0 0' }}>
-          ⏳ Envoi en cours…
-        </p>
-      )}
-      {uploadStatus === 'ok' && (
-        <p style={{ textAlign: 'center', fontSize: '13px', color: '#059669', margin: '6px 0 0', fontWeight: 600 }}>
-          ✅ Envoyé ! ({uploadedMedia.length} média{uploadedMedia.length > 1 ? 's' : ''} cette session)
-        </p>
-      )}
-      {uploadStatus === 'error' && (
-        <p style={{ textAlign: 'center', fontSize: '13px', color: '#dc2626', margin: '6px 0 0', fontWeight: 600 }}>
-          ❌ Erreur : {uploadError}
-        </p>
-      )}
-    </div>
-    );
-  };
 
   const Progress = () => state ? (
     <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px', textAlign: 'center' }}>
@@ -1310,7 +1311,7 @@ function TeamApp({ token, teamName, onLogout }) {
             )}
           </div>
         )}
-        <MediaBtn />
+        <MediaBtn uploading={uploading} uploadStatus={uploadStatus} uploadError={uploadError} uploadedMedia={uploadedMedia} onUpload={handleMediaUpload} />
         <button style={btn('#6b7280', '8px')} onClick={onLogout}>Déconnexion</button>
       </div>
     </div>
@@ -1340,7 +1341,7 @@ function TeamApp({ token, teamName, onLogout }) {
             <span style={{ background: '#f59e0b', color: 'white', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '13px', flexShrink: 0 }}>2</span>
             <span style={{ fontWeight: 800, fontSize: '15px', color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Déposer les photos</span>
           </div>
-          <MediaBtn />
+          <MediaBtn uploading={uploading} uploadStatus={uploadStatus} uploadError={uploadError} uploadedMedia={uploadedMedia} onUpload={handleMediaUpload} />
         </div>
 
         {/* ── Section 3 : Question ── */}
