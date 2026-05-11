@@ -1804,6 +1804,15 @@ function AdminHuntTab({ token }) {
             const resolvedOrder = (t.stageOrder || []).map(id =>
               stages.find(s => String(s._id) === String(id))
             );
+            // Calcul des distances entre étapes consécutives
+            const segmentDistances = resolvedOrder.map((stage, idx) => {
+              if (idx === 0 || !stage || !resolvedOrder[idx - 1]) return null;
+              const prev = resolvedOrder[idx - 1];
+              if (!prev.gpsLat || !prev.gpsLng || !stage.gpsLat || !stage.gpsLng) return null;
+              return getDistanceMeters(prev.gpsLat, prev.gpsLng, stage.gpsLat, stage.gpsLng);
+            });
+            const totalDistance = segmentDistances.reduce((sum, d) => sum + (d || 0), 0);
+            const fmtDist = (m) => m >= 1000 ? (m / 1000).toFixed(2).replace('.', ',') + ' km' : Math.round(m) + ' m';
             return (
               <div key={t._id} style={{ ...card, borderLeft: '4px solid ' + statusColor(t.status) }}>
                 {/* Header équipe */}
@@ -1837,15 +1846,31 @@ function AdminHuntTab({ token }) {
                 </div>
 
                 {/* Ordre des étapes avec flèches */}
-                <div style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Ordre des étapes
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Ordre des étapes</span>
+                  {totalDistance > 0 && (
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#4f46e5', background: '#ede9fe', borderRadius: '20px', padding: '3px 10px' }}>
+                      🗺️ {fmtDist(totalDistance)} au total
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {resolvedOrder.map((stage, idx) => {
                     const isCurrentOrDone = idx < t.currentStageIndex;
                     const isCurrent = idx === t.currentStageIndex && t.status !== 'finished';
+                    const segDist = segmentDistances[idx];
                     return (
-                      <div key={idx} style={{
+                      <React.Fragment key={idx}>
+                        {/* Connecteur distance entre étapes */}
+                        {idx > 0 && segDist !== null && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 10px' }}>
+                            <div style={{ width: '2px', height: '12px', background: '#e5e7eb', marginLeft: '9px', flexShrink: 0 }} />
+                            <span style={{ fontSize: '11px', color: '#9ca3af', fontStyle: 'italic' }}>
+                              ↕ {fmtDist(segDist)}
+                            </span>
+                          </div>
+                        )}
+                      <div style={{
                         display: 'flex', alignItems: 'center', gap: '8px',
                         background: isCurrent ? '#fef3c7' : isCurrentOrDone ? '#f0fdf4' : '#f9fafb',
                         borderRadius: '8px', padding: '7px 10px',
@@ -1891,6 +1916,7 @@ function AdminHuntTab({ token }) {
                           </div>
                         )}
                       </div>
+                      </React.Fragment>
                     );
                   })}
                 </div>
