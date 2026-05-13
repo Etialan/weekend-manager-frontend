@@ -441,6 +441,8 @@ function AdminAccueilTab({ content, onSave, saving }) {
 function AdminPlanningTab({ content, onSave, saving }) {
   const [planning, setPlanning] = useState(content.planning || []);
   const [newEvent, setNewEvent] = useState({ day: 'sat', time: '12:00', emoji: '🎉', title: '', description: '' });
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
 
   useEffect(() => { setPlanning(content.planning || []); }, [content]);
 
@@ -455,7 +457,22 @@ function AdminPlanningTab({ content, onSave, saving }) {
     setNewEvent(n => ({ ...n, title: '', description: '' }));
   };
 
+  const startEdit = (ev) => {
+    setEditingId(ev.id);
+    setEditForm({ ...ev });
+  };
+
+  const saveEdit = () => {
+    if (!editForm.title.trim()) return;
+    setPlanning(p => p.map(e => e.id === editingId ? { ...editForm } : e));
+    setEditingId(null);
+    setEditForm(null);
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditForm(null); };
+
   const inputStyle = { border: '1px solid #d1d5db', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', boxSizing: 'border-box', width: '100%' };
+  const editInputStyle = { border: '1.5px solid #4f46e5', borderRadius: '6px', padding: '6px 10px', fontSize: '13px', boxSizing: 'border-box', width: '100%', outline: 'none' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -511,19 +528,56 @@ function AdminPlanningTab({ content, onSave, saving }) {
                 {dayLabels[day]}
               </div>
               {events.map(ev => (
-                <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px', marginBottom: '6px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', minWidth: '38px' }}>{ev.time}</span>
-                    <span style={{ fontSize: '20px' }}>{ev.emoji}</span>
-                    <div>
-                      <span style={{ fontSize: '13px', fontWeight: 600, color: '#1f2937' }}>{ev.title}</span>
-                      {ev.description && <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>{ev.description}</span>}
+                <div key={ev.id} style={{ marginBottom: '6px' }}>
+                  {editingId === ev.id ? (
+                    /* ── Formulaire d'édition inline ── */
+                    <div style={{ border: '2px solid #4f46e5', borderRadius: '10px', padding: '12px', background: '#f5f3ff' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 56px', gap: '8px', marginBottom: '8px' }}>
+                        <select value={editForm.day} onChange={e => setEditForm(f => ({ ...f, day: e.target.value }))} style={editInputStyle}>
+                          <option value="sat">Samedi</option>
+                          <option value="sun">Dimanche</option>
+                          <option value="mon">Lundi</option>
+                        </select>
+                        <input type="time" value={editForm.time} onChange={e => setEditForm(f => ({ ...f, time: e.target.value }))} style={editInputStyle} />
+                        <input type="text" value={editForm.emoji} onChange={e => setEditForm(f => ({ ...f, emoji: e.target.value }))}
+                          style={{ ...editInputStyle, textAlign: 'center', fontSize: '20px', padding: '4px' }} />
+                      </div>
+                      <input type="text" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                        placeholder="Titre *" style={{ ...editInputStyle, marginBottom: '6px' }} />
+                      <input type="text" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                        placeholder="Description (optionnel)" style={{ ...editInputStyle, marginBottom: '10px' }} />
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={saveEdit}
+                          style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '6px', padding: '7px 16px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                          ✅ Valider
+                        </button>
+                        <button onClick={cancelEdit}
+                          style={{ background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '6px', padding: '7px 14px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
+                          Annuler
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <button onClick={() => setPlanning(p => p.filter(e => e.id !== ev.id))}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '16px', padding: '4px 6px' }}>
-                    🗑️
-                  </button>
+                  ) : (
+                    /* ── Ligne normale ── */
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f9fafb', borderRadius: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', minWidth: '38px' }}>{ev.time}</span>
+                        <span style={{ fontSize: '20px' }}>{ev.emoji}</span>
+                        <div>
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#1f2937' }}>{ev.title}</span>
+                          {ev.description && <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '8px' }}>{ev.description}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button onClick={() => startEdit(ev)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4f46e5', fontSize: '15px', padding: '4px 6px' }}
+                          title="Modifier">✏️</button>
+                        <button onClick={() => setPlanning(p => p.filter(e => e.id !== ev.id))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '15px', padding: '4px 6px' }}
+                          title="Supprimer">🗑️</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
