@@ -2107,7 +2107,12 @@ function AdminQuizTab({ token }) {
   };
   const loadLive = async (id) => {
     const r = await fetch(API_URL + '/quiz/' + id + '/live', { headers: th });
-    if (r.ok) setLiveData(await r.json());
+    if (r.ok) {
+      const data = await r.json();
+      setLiveData(data);
+      // Charger automatiquement le classement dès que le quiz se termine
+      if (data.quiz?.status === 'finished') loadLeaderboard(id);
+    }
   };
   const loadLeaderboard = async (id) => {
     const r = await fetch(API_URL + '/quiz/' + id + '/leaderboard', { headers: th });
@@ -2602,12 +2607,40 @@ function AdminQuizTab({ token }) {
 
             {/* ③ Contenu principal */}
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '0 24px' }}>
-              {!q ? (
+              {quiz.status === 'finished' ? (
+                /* ── Classement final ── */
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>
+                  <div style={{ fontSize: '60px', marginBottom: '8px' }}>🏆</div>
+                  <h1 style={{ color: 'white', fontSize: '32px', fontWeight: 800, margin: '0 0 24px', textAlign: 'center' }}>Classement final</h1>
+                  {leaderboard.length === 0 ? (
+                    <p style={{ color: '#a5b4fc' }}>Chargement…</p>
+                  ) : (
+                    <div style={{ width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {leaderboard.map((p, i) => (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: '16px',
+                          background: i === 0 ? 'rgba(251,191,36,0.25)' : i === 1 ? 'rgba(156,163,175,0.2)' : i === 2 ? 'rgba(180,83,9,0.2)' : 'rgba(255,255,255,0.08)',
+                          border: i === 0 ? '2px solid #fbbf24' : i === 1 ? '2px solid #9ca3af' : i === 2 ? '2px solid #b45309' : '2px solid transparent',
+                          borderRadius: '14px', padding: '14px 20px',
+                        }}>
+                          <span style={{ fontSize: i < 3 ? '32px' : '22px', minWidth: '40px', textAlign: 'center' }}>
+                            {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                          </span>
+                          <span style={{ flex: 1, color: 'white', fontWeight: 800, fontSize: i === 0 ? '24px' : '20px' }}>{p.name}</span>
+                          <span style={{ color: '#fbbf24', fontWeight: 800, fontSize: '22px' }}>{p.correct}</span>
+                          <span style={{ color: '#a5b4fc', fontSize: '14px', minWidth: '60px', textAlign: 'right' }}>✓ {p.correct > 1 ? 'bonnes' : 'bonne'}</span>
+                          <span style={{ color: '#6b7280', fontSize: '14px', minWidth: '60px', textAlign: 'right' }}>⏱ {fmtTime(p.totalTimeMs)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : !q ? (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                   <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎮</div>
                   <h1 style={{ color: 'white', fontSize: '36px', textAlign: 'center', margin: '0 0 12px' }}>{quiz.name}</h1>
                   <p style={{ color: '#a5b4fc', fontSize: '20px' }}>
-                    {quiz.status === 'idle' ? 'En attente de démarrage…' : quiz.status === 'finished' ? 'Quiz terminé !' : 'Prêt à lancer la prochaine question…'}
+                    {quiz.status === 'idle' ? 'En attente de démarrage…' : 'Prêt à lancer la prochaine question…'}
                   </p>
                 </div>
               ) : (
