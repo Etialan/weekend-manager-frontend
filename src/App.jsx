@@ -2064,11 +2064,12 @@ function AdminHuntTab({ token }) {
 
 // ─── Helpers Quiz ─────────────────────────────────────────────────────────────
 
-const CHOICE_COLORS = { A: '#ef4444', B: '#3b82f6', C: '#f59e0b', D: '#22c55e' };
-const CHOICE_ICONS  = { A: '▲', B: '◆', C: '●', D: '■' };
+const CHOICE_COLORS = { A: '#f97316', B: '#0891b2', C: '#7c3aed', D: '#db2777' };
+const CHOICE_ICONS  = { A: '⭐', B: '🌙', C: '⚡', D: '🌸' };
 const EMPTY_Q_FORM  = {
   text: '', timerSeconds: 30, correctChoiceId: 'A',
   choices: [{ id: 'A', text: '' }, { id: 'B', text: '' }, { id: 'C', text: '' }, { id: 'D', text: '' }],
+  mediaUrl: '', mediaType: '',
 };
 
 function fmtTime(ms) {
@@ -2092,6 +2093,9 @@ function AdminQuizTab({ token }) {
   const [loading, setLoading]       = useState(false);
   const [presentation, setPresentation] = useState(false);
   const [timeLeft, setTimeLeft]     = useState(0);
+  const [timerPaused, setTimerPaused] = useState(false);
+  const pauseOffsetRef = React.useRef(0); // ms accumulés en pause
+  const pauseStartRef  = React.useRef(null);
 
   const loadQuizzes = async () => {
     const r = await fetch(API_URL + '/quiz', { headers: th });
@@ -2130,18 +2134,52 @@ function AdminQuizTab({ token }) {
     return () => clearInterval(iv);
   }, [selected]);
 
-  // Timer countdown
+  // Reset pause quand une nouvelle question est lancée
+  useEffect(() => {
+    setTimerPaused(false);
+    pauseOffsetRef.current = 0;
+    pauseStartRef.current = null;
+  }, [liveData?.currentQuestion?._id]);
+
+  // Timer countdown (tient compte de la pause)
   useEffect(() => {
     const q = liveData?.currentQuestion;
     if (!q || q.status !== 'active' || !q.startedAt || !q.timerSeconds) { setTimeLeft(0); return; }
     const update = () => {
-      const elapsed = (Date.now() - new Date(q.startedAt).getTime()) / 1000;
+      if (timerPaused) return; // gelé
+      const offset = pauseOffsetRef.current;
+      const elapsed = (Date.now() - new Date(q.startedAt).getTime() - offset) / 1000;
       setTimeLeft(Math.max(0, q.timerSeconds - Math.floor(elapsed)));
     };
     update();
     const iv = setInterval(update, 500);
     return () => clearInterval(iv);
-  }, [liveData?.currentQuestion?._id, liveData?.currentQuestion?.status]);
+  }, [liveData?.currentQuestion?._id, liveData?.currentQuestion?.status, timerPaused]);
+
+  // Auto-révélation quand le timer atteint 0 (sauf si en pause)
+  useEffect(() => {
+    if (timeLeft === 0 && !timerPaused) {
+      const q = liveData?.currentQuestion;
+      if (q && q.status === 'active' && q.timerSeconds > 0) {
+        revealQuestion(q._id);
+      }
+    }
+  }, [timeLeft]);
+
+  const togglePause = () => {
+    if (!timerPaused) {
+      // On met en pause : mémoriser le début de la pause
+      pauseStartRef.current = Date.now();
+      setTimerPaused(true);
+    } else {
+      // On reprend : accumuler le temps passé en pause
+      if (pauseStartRef.current) {
+        pauseOffsetRef.current += Date.now() - pauseStartRef.current;
+        pauseStartRef.current = null;
+      }
+      setTimerPaused(false);
+    }
+  };
 
   const quizAction = async (action) => {
     setLoading(true);
@@ -2327,10 +2365,45 @@ function AdminQuizTab({ token }) {
                 </div>
                 <p style={{ fontSize: '12px', color: '#6b7280', margin: '8px 0 0' }}>Sélectionnez ✓ pour marquer la bonne réponse</p>
               </div>
-              <div style={{ marginBottom: '16px' }}>
+              <div style={{ marginBottom: '12px' }}>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Timer (secondes) — 0 = sans timer</label>
                 <input type="number" min={0} max={120} value={qForm.timerSeconds} onChange={e => setQForm(f => ({ ...f, timerSeconds: parseInt(e.target.value) || 0 }))}
                   style={{ ...inputStyle, width: '100px' }} />
+              </div>
+              {/* Upload média */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Photo / Vidéo (optionnel)</label>
+                {qForm.mediaUrl ? (
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    {qForm.mediaType === 'video'
+                      ? <video src={qForm.mediaUrl} style={{ maxHeight: '80px', borderRadius: '8px' }} controls />
+                      : <img src={qForm.mediaUrl} alt="" style={{ maxHeight: '80px', borderRadius: '8px', objectFit: 'cover' }} />}
+                    <button onClick={() => setQForm(f => ({ ...f, mediaUrl: '', mediaType: '' }))}
+                      style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 700 }}>✕ Supprimer</button>
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <div style={{ background: '#ede9fe', color: '#7c3aed', borderRadius: '8px', padding: '9px 16px', fontWeight: 600, fontSize: '14px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      📎 Ajouter une image/vidéo
+                      <input type="file" accept="image/*,video/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const fd = new FormData();
+                          fd.append('file', file);
+                          fd.append('upload_preset', CLD_PRESET);
+                          setLoading(true);
+                          try {
+                            const r = await fetch('https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/auto/upload', { method: 'POST', body: fd });
+                            const data = await r.json();
+                            setQForm(f => ({ ...f, mediaUrl: data.secure_url, mediaType: data.resource_type }));
+                          } catch (err) { alert('Erreur upload : ' + err.message); }
+                          setLoading(false);
+                        }}
+                        style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={saveQuestion} disabled={loading || !qForm.text.trim() || qForm.choices.some(c => !c.text.trim())} style={btnPrimary}>
@@ -2501,7 +2574,14 @@ function AdminQuizTab({ token }) {
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 {liveData && <span style={{ color: '#a5b4fc', fontSize: '14px' }}>👥 {liveData.participantCount} • 💬 {liveData.answerCount || 0} réponses</span>}
                 {q?.status === 'active' && q.timerSeconds > 0 && (
-                  <span style={{ color: timeLeft <= 5 ? '#ef4444' : '#fbbf24', fontSize: '28px', fontWeight: 800 }}>{timeLeft}s</span>
+                  <span style={{ color: timerPaused ? '#f59e0b' : timeLeft <= 5 ? '#ef4444' : '#fbbf24', fontSize: '28px', fontWeight: 800 }}>
+                    {timerPaused ? '⏸ ' : ''}{timeLeft}s
+                  </span>
+                )}
+                {currentQ?.status === 'active' && currentQ.timerSeconds > 0 && (
+                  <button onClick={togglePause} style={{ background: timerPaused ? '#f59e0b' : '#374151', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 700, fontSize: '18px' }}>
+                    {timerPaused ? '▶' : '⏸'}
+                  </button>
                 )}
                 <button onClick={() => setPresentation(false)} style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 700 }}>✕ Quitter</button>
               </div>
@@ -2517,9 +2597,17 @@ function AdminQuizTab({ token }) {
               </div>
             ) : (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                {/* Média si présent */}
+                {q.mediaUrl && (
+                  <div style={{ textAlign: 'center', marginBottom: '16px', flex: '0 0 auto' }}>
+                    {q.mediaType === 'video'
+                      ? <video src={q.mediaUrl} autoPlay loop muted style={{ maxHeight: '30vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />
+                      : <img src={q.mediaUrl} alt="" style={{ maxHeight: '30vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />}
+                  </div>
+                )}
                 {/* Question */}
-                <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '16px', padding: '28px 32px', marginBottom: '24px', textAlign: 'center' }}>
-                  <p style={{ color: 'white', fontSize: 'clamp(20px, 3vw, 32px)', fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{q.text}</p>
+                <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px 32px', marginBottom: '16px', textAlign: 'center', flex: '0 0 auto' }}>
+                  <p style={{ color: 'white', fontSize: 'clamp(18px, 3vw, 30px)', fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{q.text}</p>
                 </div>
                 {/* Choix en grille 2×2 */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', flex: 1 }}>
@@ -2720,9 +2808,17 @@ function QuizParticipantApp({ token, participantName, onLogout }) {
             <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px' }}>👤 {participantName}</span>
             {q.timerSeconds > 0 && <span style={{ fontWeight: 800, fontSize: '22px', color: timeLeft <= 5 ? '#ef4444' : 'white' }}>{timeLeft}s</span>}
           </div>
+          {/* Média si présent */}
+          {q.mediaUrl && (
+            <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+              {q.mediaType === 'video'
+                ? <video src={q.mediaUrl} autoPlay loop muted controls style={{ maxHeight: '25vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />
+                : <img src={q.mediaUrl} alt="" style={{ maxHeight: '25vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />}
+            </div>
+          )}
           {/* Question */}
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '16px', padding: '20px', marginBottom: '16px', textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, lineHeight: 1.4 }}>{q.text}</p>
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '16px', padding: '16px 20px', marginBottom: '16px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '18px', fontWeight: 700, lineHeight: 1.4 }}>{q.text}</p>
           </div>
           {/* Choix */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -3201,40 +3297,31 @@ export default function WeekendManager() {
             ))}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {loginTab === 'family' ? (
+            {loginTab === 'family' && (
               <>
                 <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
                   Entrez le mot de passe pour accéder au site
                 </p>
-                <input
-                  type="password"
-                  placeholder="Mot de passe"
-                  value={password}
+                <input type="password" placeholder="Mot de passe" value={password}
                   onChange={e => setPassword(e.target.value)}
                   onKeyPress={e => e.key === 'Enter' && handleLogin()}
-                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '15px', width: '100%', outline: 'none', boxSizing: 'border-box' }}
-                />
+                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '15px', width: '100%', outline: 'none', boxSizing: 'border-box' }} />
                 {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
                 <button onClick={handleLogin} disabled={loading}
                   style={{ background: 'linear-gradient(135deg, #7c3aed, #db2777)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
                   {loading ? 'Connexion...' : 'Accéder au site'}
                 </button>
               </>
-            ) : (
+            )}
+            {loginTab === 'team' && (
               <>
                 <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
                   Entrez le code à 4 chiffres de votre équipe
                 </p>
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  maxLength={4}
-                  placeholder="0000"
-                  value={teamCode}
+                <input type="tel" inputMode="numeric" maxLength={4} placeholder="0000" value={teamCode}
                   onChange={e => setTeamCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   onKeyPress={e => e.key === 'Enter' && handleTeamLogin()}
-                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '32px', fontWeight: 800, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center', letterSpacing: '12px' }}
-                />
+                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '32px', fontWeight: 800, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center', letterSpacing: '12px' }} />
                 {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
                 <button onClick={handleTeamLogin} disabled={loading}
                   style={{ background: 'linear-gradient(135deg, #059669, #0ea5e9)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(5,150,105,0.35)' }}>
@@ -3247,14 +3334,10 @@ export default function WeekendManager() {
                 <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
                   Entrez votre prénom pour rejoindre le quiz
                 </p>
-                <input
-                  type="text"
-                  placeholder="Votre prénom…"
-                  value={quizName}
+                <input type="text" placeholder="Votre prénom…" value={quizName}
                   onChange={e => setQuizName(e.target.value)}
                   onKeyPress={e => e.key === 'Enter' && handleQuizLogin()}
-                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '18px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }}
-                />
+                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '18px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
                 {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
                 <button onClick={handleQuizLogin} disabled={loading}
                   style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
