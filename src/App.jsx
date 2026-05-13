@@ -2560,70 +2560,119 @@ function AdminQuizTab({ token }) {
         const q = currentQ;
         const timerPct = q?.timerSeconds > 0 && q?.startedAt
           ? Math.max(0, timeLeft / q.timerSeconds * 100) : 100;
+        const nextPending = approvedQs.find(aq => aq.status === 'pending');
+        const currentIdx  = q ? approvedQs.findIndex(aq => aq._id === q._id) : -1;
+        const ctrlBtn = (label, onClick, bg = '#4f46e5', disabled = false) => (
+          <button onClick={onClick} disabled={disabled || loading}
+            style={{ background: disabled ? '#374151' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '12px 22px', fontWeight: 700, fontSize: '16px', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+            {label}
+          </button>
+        );
         return (
-          <div style={{ position: 'fixed', inset: 0, background: '#1e1b4b', zIndex: 1000, display: 'flex', flexDirection: 'column', padding: '24px' }}>
-            {/* Timer bar */}
-            {q?.status === 'active' && q.timerSeconds > 0 && (
-              <div style={{ height: '8px', background: '#3730a3', borderRadius: '4px', marginBottom: '20px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: timerPct + '%', background: timerPct > 50 ? '#22c55e' : timerPct > 20 ? '#f59e0b' : '#ef4444', transition: 'width 0.5s linear, background 0.5s' }} />
-              </div>
-            )}
-            {/* Titre quiz */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <span style={{ color: '#a5b4fc', fontSize: '16px', fontWeight: 700 }}>🎮 {quiz.name}</span>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                {liveData && <span style={{ color: '#a5b4fc', fontSize: '14px' }}>👥 {liveData.participantCount} • 💬 {liveData.answerCount || 0} réponses</span>}
+          <div style={{ position: 'fixed', inset: 0, background: '#1e1b4b', zIndex: 1000, display: 'flex', flexDirection: 'column' }}>
+
+            {/* ① Timer bar */}
+            <div style={{ height: '8px', background: '#3730a3', flexShrink: 0, overflow: 'hidden' }}>
+              {q?.status === 'active' && q.timerSeconds > 0 && (
+                <div style={{ height: '100%', width: (timerPaused ? timerPct : timerPct) + '%', background: timerPct > 50 ? '#22c55e' : timerPct > 20 ? '#f59e0b' : '#ef4444', transition: timerPaused ? 'none' : 'width 0.5s linear, background 0.5s' }} />
+              )}
+            </div>
+
+            {/* ② Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', flexShrink: 0 }}>
+              <span style={{ color: '#a5b4fc', fontSize: '15px', fontWeight: 700 }}>🎮 {quiz.name}</span>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                {liveData && (
+                  <span style={{ color: '#a5b4fc', fontSize: '14px' }}>
+                    👥 {liveData.participantCount} participants
+                    {q?.status === 'active' && <> &nbsp;•&nbsp; 💬 {liveData.answerCount || 0} / {liveData.participantCount} réponses</>}
+                  </span>
+                )}
                 {q?.status === 'active' && q.timerSeconds > 0 && (
-                  <span style={{ color: timerPaused ? '#f59e0b' : timeLeft <= 5 ? '#ef4444' : '#fbbf24', fontSize: '28px', fontWeight: 800 }}>
+                  <span style={{ color: timerPaused ? '#f59e0b' : timeLeft <= 5 ? '#ef4444' : '#fbbf24', fontSize: '26px', fontWeight: 800 }}>
                     {timerPaused ? '⏸ ' : ''}{timeLeft}s
                   </span>
                 )}
-                {currentQ?.status === 'active' && currentQ.timerSeconds > 0 && (
-                  <button onClick={togglePause} style={{ background: timerPaused ? '#f59e0b' : '#374151', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 700, fontSize: '18px' }}>
-                    {timerPaused ? '▶' : '⏸'}
-                  </button>
-                )}
-                <button onClick={() => setPresentation(false)} style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 700 }}>✕ Quitter</button>
+                <button onClick={() => setPresentation(false)}
+                  style={{ background: 'rgba(255,255,255,0.1)', color: '#a5b4fc', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', padding: '7px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '13px' }}>
+                  ✕ Quitter
+                </button>
               </div>
             </div>
 
-            {!q ? (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎮</div>
-                <h1 style={{ color: 'white', fontSize: '36px', textAlign: 'center', margin: '0 0 12px' }}>{quiz.name}</h1>
-                <p style={{ color: '#a5b4fc', fontSize: '20px' }}>
-                  {quiz.status === 'idle' ? 'En attente de démarrage…' : quiz.status === 'finished' ? 'Quiz terminé !' : 'Prêt à lancer la prochaine question…'}
-                </p>
-              </div>
-            ) : (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {/* Média si présent */}
-                {q.mediaUrl && (
-                  <div style={{ textAlign: 'center', marginBottom: '16px', flex: '0 0 auto' }}>
-                    {q.mediaType === 'video'
-                      ? <video src={q.mediaUrl} autoPlay loop muted style={{ maxHeight: '30vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />
-                      : <img src={q.mediaUrl} alt="" style={{ maxHeight: '30vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />}
+            {/* ③ Contenu principal */}
+            <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '0 24px' }}>
+              {!q ? (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎮</div>
+                  <h1 style={{ color: 'white', fontSize: '36px', textAlign: 'center', margin: '0 0 12px' }}>{quiz.name}</h1>
+                  <p style={{ color: '#a5b4fc', fontSize: '20px' }}>
+                    {quiz.status === 'idle' ? 'En attente de démarrage…' : quiz.status === 'finished' ? 'Quiz terminé !' : 'Prêt à lancer la prochaine question…'}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  {q.mediaUrl && (
+                    <div style={{ textAlign: 'center', marginBottom: '10px', flexShrink: 0 }}>
+                      {q.mediaType === 'video'
+                        ? <video src={q.mediaUrl} autoPlay loop muted style={{ maxHeight: '22vh', maxWidth: '100%', borderRadius: '12px' }} />
+                        : <img src={q.mediaUrl} alt="" style={{ maxHeight: '22vh', maxWidth: '100%', borderRadius: '12px', objectFit: 'contain' }} />}
+                    </div>
+                  )}
+                  <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '16px', padding: '18px 32px', marginBottom: '12px', textAlign: 'center', flexShrink: 0 }}>
+                    {currentIdx >= 0 && <div style={{ color: '#a5b4fc', fontSize: '13px', marginBottom: '4px' }}>Question {currentIdx + 1} / {approvedQs.length}</div>}
+                    <p style={{ color: 'white', fontSize: 'clamp(18px, 3vw, 28px)', fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{q.text}</p>
                   </div>
-                )}
-                {/* Question */}
-                <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px 32px', marginBottom: '16px', textAlign: 'center', flex: '0 0 auto' }}>
-                  <p style={{ color: 'white', fontSize: 'clamp(18px, 3vw, 30px)', fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{q.text}</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', flex: 1, minHeight: 0 }}>
+                    {q.choices.map(c => {
+                      const isCorrect = q.status === 'revealed' && c.id === q.correctChoiceId;
+                      return (
+                        <div key={c.id} style={{ background: isCorrect ? '#22c55e' : CHOICE_COLORS[c.id], borderRadius: '14px', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '14px', opacity: q.status === 'revealed' && !isCorrect ? 0.3 : 1, transition: 'opacity 0.4s' }}>
+                          <span style={{ fontSize: '26px', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</span>
+                          <span style={{ color: 'white', fontSize: 'clamp(15px, 2vw, 22px)', fontWeight: 700 }}>{c.text}</span>
+                          {isCorrect && <span style={{ marginLeft: 'auto', fontSize: '28px' }}>✓</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                {/* Choix en grille 2×2 */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', flex: 1 }}>
-                  {q.choices.map(c => {
-                    const isCorrect = q.status === 'revealed' && c.id === q.correctChoiceId;
-                    return (
-                      <div key={c.id} style={{ background: isCorrect ? '#22c55e' : CHOICE_COLORS[c.id], borderRadius: '16px', padding: '20px 24px', display: 'flex', alignItems: 'center', gap: '16px', opacity: q.status === 'revealed' && !isCorrect ? 0.35 : 1, transition: 'opacity 0.4s' }}>
-                        <span style={{ fontSize: '28px', fontWeight: 800, color: 'white', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</span>
-                        <span style={{ color: 'white', fontSize: 'clamp(16px, 2.5vw, 24px)', fontWeight: 700 }}>{c.text}</span>
-                        {isCorrect && <span style={{ marginLeft: 'auto', fontSize: '32px' }}>✓</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* ④ Barre de contrôle admin (bas de l'écran) */}
+            <div style={{ background: 'rgba(0,0,0,0.6)', borderTop: '1px solid rgba(255,255,255,0.1)', padding: '14px 24px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap' }}>
+              {/* Quiz pas encore démarré */}
+              {quiz.status === 'idle' && ctrlBtn('▶ Démarrer le quiz', () => quizAction('start'), '#059669')}
+
+              {/* Aucune question active → proposer la prochaine */}
+              {quiz.status === 'active' && !q && nextPending &&
+                ctrlBtn(`▶ Lancer Q${approvedQs.indexOf(nextPending) + 1}`, () => launchQuestion(nextPending._id), '#059669')
+              }
+              {quiz.status === 'active' && !q && !nextPending && approvedQs.length > 0 &&
+                ctrlBtn('🏁 Terminer le quiz', () => quizAction('finish'), '#dc2626')
+              }
+
+              {/* Question active */}
+              {q?.status === 'active' && (
+                <>
+                  {q.timerSeconds > 0 && ctrlBtn(timerPaused ? '▶ Reprendre' : '⏸ Pause', togglePause, timerPaused ? '#f59e0b' : '#374151')}
+                  {ctrlBtn('👁 Révéler la réponse', () => revealQuestion(q._id), '#7c3aed')}
+                </>
+              )}
+
+              {/* Réponse révélée */}
+              {q?.status === 'revealed' && (
+                nextPending
+                  ? ctrlBtn(`→ Question suivante (Q${approvedQs.indexOf(nextPending) + 1})`, () => launchQuestion(nextPending._id), '#059669')
+                  : ctrlBtn('🏁 Terminer le quiz', () => quizAction('finish'), '#dc2626')
+              )}
+
+              {/* Quiz terminé */}
+              {quiz.status === 'finished' && (
+                <span style={{ color: '#a5b4fc', fontWeight: 700, fontSize: '16px' }}>🏆 Quiz terminé — voir le classement</span>
+              )}
+            </div>
+
           </div>
         );
       })()}
