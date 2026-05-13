@@ -2096,10 +2096,29 @@ function AdminQuizTab({ token }) {
   const [timerPaused, setTimerPaused] = useState(false);
   const pauseOffsetRef = React.useRef(0); // ms accumulés en pause
   const pauseStartRef  = React.useRef(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [assignTargets, setAssignTargets] = useState({}); // { [qid]: quizId }
 
   const loadQuizzes = async () => {
     const r = await fetch(API_URL + '/quiz', { headers: th });
     if (r.ok) setQuizzes(await r.json());
+  };
+  const loadSuggestions = async () => {
+    const r = await fetch(API_URL + '/quiz/admin/suggestions', { headers: th });
+    if (r.ok) setSuggestions(await r.json());
+  };
+  const assignSuggestion = async (qid) => {
+    const targetQuizId = assignTargets[qid];
+    if (!targetQuizId) return;
+    const r = await fetch(API_URL + '/quiz/admin/suggestions/' + qid + '/assign', {
+      method: 'POST', headers: th, body: JSON.stringify({ targetQuizId }),
+    });
+    if (r.ok) { loadSuggestions(); loadQs(selected?._id); }
+  };
+  const rejectSuggestion = async (qid) => {
+    if (!window.confirm('Supprimer cette suggestion ?')) return;
+    await fetch(API_URL + '/quiz/admin/suggestions/' + qid, { method: 'DELETE', headers: th });
+    loadSuggestions();
   };
   const loadQs = async (id) => {
     const r = await fetch(API_URL + '/quiz/' + id + '/questions', { headers: th });
@@ -2119,7 +2138,7 @@ function AdminQuizTab({ token }) {
     if (r.ok) setLeaderboard(await r.json());
   };
 
-  useEffect(() => { loadQuizzes(); }, []);
+  useEffect(() => { loadQuizzes(); loadSuggestions(); }, []);
   useEffect(() => {
     if (selected) { loadQs(selected._id); loadLive(selected._id); }
   }, [selected]);
@@ -2253,6 +2272,45 @@ function AdminQuizTab({ token }) {
     <div>
       <div style={card}>
         <h2 style={{ fontWeight: 800, color: '#7c3aed', margin: '0 0 16px' }}>🎮 Quiz</h2>
+
+        {/* ── Suggestions en attente ── */}
+        {suggestions.length > 0 && (
+          <div style={{ background: '#fffbeb', border: '2px solid #fcd34d', borderRadius: '12px', padding: '14px 16px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3 style={{ margin: 0, color: '#92400e', fontWeight: 800, fontSize: '15px' }}>💡 Suggestions en attente ({suggestions.length})</h3>
+              <button onClick={loadSuggestions} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }} title="Rafraîchir">🔄</button>
+            </div>
+            {suggestions.map(s => (
+              <div key={s._id} style={{ background: 'white', border: '1.5px solid #fde68a', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
+                <div style={{ fontWeight: 700, fontSize: '14px', color: '#1f2937', marginBottom: '4px' }}>{s.text}</div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                  {s.choices.map(c => (
+                    <span key={c.id} style={{ background: CHOICE_COLORS[c.id], color: 'white', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', fontWeight: 700, border: s.correctChoiceId === c.id ? '2px solid #1f2937' : '2px solid transparent' }}>
+                      {CHOICE_ICONS[c.id]} {c.text}{s.correctChoiceId === c.id ? ' ✓' : ''}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px' }}>proposé par <strong>{s.proposedBy}</strong> · {s.timerSeconds}s</div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select value={assignTargets[s._id] || ''} onChange={e => setAssignTargets(t => ({ ...t, [s._id]: e.target.value }))}
+                    style={{ flex: 1, minWidth: '140px', border: '1.5px solid #fcd34d', borderRadius: '6px', padding: '6px 8px', fontSize: '13px', background: 'white' }}>
+                    <option value="">— Choisir un quiz —</option>
+                    {quizzes.map(q => <option key={q._id} value={q._id}>{q.name}</option>)}
+                  </select>
+                  <button onClick={() => assignSuggestion(s._id)} disabled={!assignTargets[s._id]}
+                    style={{ background: assignTargets[s._id] ? '#059669' : '#d1fae5', color: assignTargets[s._id] ? 'white' : '#6b7280', border: 'none', borderRadius: '6px', padding: '6px 12px', fontWeight: 700, fontSize: '13px', cursor: assignTargets[s._id] ? 'pointer' : 'not-allowed' }}>
+                    ✅ Assigner
+                  </button>
+                  <button onClick={() => rejectSuggestion(s._id)}
+                    style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', padding: '6px 10px', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                    🗑
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
           <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && newName.trim() && (async () => { setLoading(true); await fetch(API_URL + '/quiz', { method: 'POST', headers: th, body: JSON.stringify({ name: newName }) }); setNewName(''); await loadQuizzes(); setLoading(false); })()}
             placeholder="Nom du quiz…" style={{ ...inputStyle, flex: 1 }} />
@@ -2791,7 +2849,12 @@ function QuizParticipantApp({ token, participantName, onLogout }) {
   const submitSuggestion = async () => {
     if (!suggestForm.text.trim() || suggestForm.choices.some(c => !c.text.trim())) return;
     setSubmitting(true);
-    const r = await fetch(API_URL + '/quiz/participant/suggest', { method: 'POST', headers: th, body: JSON.stringify(suggestForm) });
+    // Utilise l'endpoint public : les suggestions vont dans le pot commun, l'admin allouera
+    const r = await fetch(API_URL + '/quiz/public/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...suggestForm, name: participantName }),
+    });
     setSuggestStatus(r.ok ? 'ok' : 'error');
     if (r.ok) { setSuggestForm({ ...EMPTY_Q_FORM }); setTimeout(() => { setShowSuggest(false); setSuggestStatus(null); }, 2000); }
     setSubmitting(false);
@@ -3007,6 +3070,9 @@ export default function WeekendManager() {
   const [quizList, setQuizList] = useState([]);
   const [selectedQuizId, setSelectedQuizId] = useState('');
   const [teamCode, setTeamCode] = useState('');
+  const [publicSuggestName, setPublicSuggestName] = useState('');
+  const [publicSuggestForm, setPublicSuggestForm] = useState({ ...EMPTY_Q_FORM });
+  const [publicSuggestStatus, setPublicSuggestStatus] = useState(null); // null | 'ok' | 'error'
   const [activeTab, setActiveTab] = useState('intro');
   const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
   const [contentSaving, setContentSaving] = useState(false);
@@ -3168,6 +3234,29 @@ export default function WeekendManager() {
         setLoginError(d.error || 'Impossible de rejoindre le quiz');
       }
     } catch (e) { setLoginError('Erreur : ' + e.message); }
+    setLoading(false);
+  };
+
+  // ── Suggérer une question (sans compte) ──
+  const handlePublicSuggest = async () => {
+    if (!publicSuggestName.trim()) { setPublicSuggestStatus('error'); return; }
+    if (!publicSuggestForm.text.trim() || publicSuggestForm.choices.some(c => !c.text.trim())) { setPublicSuggestStatus('error'); return; }
+    setLoading(true);
+    setPublicSuggestStatus(null);
+    try {
+      const r = await fetch(API_URL + '/quiz/public/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: publicSuggestName.trim(), ...publicSuggestForm }),
+      });
+      if (r.ok) {
+        setPublicSuggestStatus('ok');
+        setPublicSuggestForm({ ...EMPTY_Q_FORM });
+        setPublicSuggestName('');
+      } else {
+        setPublicSuggestStatus('error');
+      }
+    } catch (e) { setPublicSuggestStatus('error'); }
     setLoading(false);
   };
 
@@ -3383,14 +3472,14 @@ export default function WeekendManager() {
               50 ans d'Étienne !
             </h1>
           </div>
-          {/* Sélecteur famille / équipe / quiz */}
-          <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '2px solid #e5e7eb', marginBottom: '20px' }}>
-            {[['family', '🏠 Famille'], ['team', '🎯 Chasse'], ['quiz', '🎮 Quiz']].map(([k, l]) => (
-              <button key={k} onClick={() => { setLoginTab(k); setLoginError(''); }}
-                style={{ flex: 1, padding: '10px', fontWeight: 700, fontSize: '13px', border: 'none', cursor: 'pointer',
+          {/* Sélecteur famille / équipe / quiz / suggérer */}
+          <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '2px solid #e5e7eb', marginBottom: '20px', flexWrap: 'wrap' }}>
+            {[['family', '🏠', 'Famille'], ['team', '🎯', 'Chasse'], ['quiz', '🎮', 'Quiz'], ['suggest', '💡', 'Suggérer']].map(([k, icon, label]) => (
+              <button key={k} onClick={() => { setLoginTab(k); setLoginError(''); setPublicSuggestStatus(null); }}
+                style={{ flex: 1, padding: '9px 4px', fontWeight: 700, fontSize: '12px', border: 'none', cursor: 'pointer', minWidth: '60px',
                   background: loginTab === k ? '#4f46e5' : 'transparent',
                   color: loginTab === k ? 'white' : '#6b7280' }}>
-                {l}
+                {icon} {label}
               </button>
             ))}
           </div>
@@ -3455,6 +3544,39 @@ export default function WeekendManager() {
                   disabled={loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)}
                   style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: (loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)) ? 'not-allowed' : 'pointer', opacity: (loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)) ? 0.5 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
                   {loading ? 'Connexion...' : '🎮 Rejoindre le quiz'}
+                </button>
+              </>
+            )}
+            {loginTab === 'suggest' && (
+              <>
+                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
+                  Proposez une question — l'admin l'ajoutera au bon quiz
+                </p>
+                <input type="text" placeholder="Votre prénom…" value={publicSuggestName}
+                  onChange={e => setPublicSuggestName(e.target.value)}
+                  style={{ border: '2px solid #fcd34d', borderRadius: '10px', padding: '11px 14px', fontSize: '15px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
+                <textarea value={publicSuggestForm.text}
+                  onChange={e => setPublicSuggestForm(f => ({ ...f, text: e.target.value }))}
+                  placeholder="Votre question…" rows={2}
+                  style={{ border: '2px solid #fcd34d', borderRadius: '8px', padding: '10px', fontSize: '14px', width: '100%', boxSizing: 'border-box', resize: 'vertical', outline: 'none' }} />
+                {publicSuggestForm.choices.map(c => (
+                  <div key={c.id} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div style={{ background: CHOICE_COLORS[c.id], color: 'white', borderRadius: '6px', padding: '6px 8px', fontWeight: 800, fontSize: '13px', minWidth: '28px', textAlign: 'center', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</div>
+                    <input value={c.text}
+                      onChange={e => setPublicSuggestForm(f => ({ ...f, choices: f.choices.map(ch => ch.id === c.id ? { ...ch, text: e.target.value } : ch) }))}
+                      placeholder={`Choix ${c.id}…`}
+                      style={{ flex: 1, border: '1.5px solid #fcd34d', borderRadius: '6px', padding: '7px 8px', fontSize: '13px', boxSizing: 'border-box', outline: 'none' }} />
+                    <input type="radio" name="psCorrect" checked={publicSuggestForm.correctChoiceId === c.id}
+                      onChange={() => setPublicSuggestForm(f => ({ ...f, correctChoiceId: c.id }))}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                  </div>
+                ))}
+                <p style={{ fontSize: '11px', color: '#92400e', margin: '0' }}>✓ = bonne réponse</p>
+                {publicSuggestStatus === 'ok' && <p style={{ color: '#059669', fontWeight: 700, textAlign: 'center', margin: 0 }}>✅ Question proposée ! Merci 🎉</p>}
+                {publicSuggestStatus === 'error' && <p style={{ color: '#dc2626', fontWeight: 700, textAlign: 'center', margin: 0 }}>❌ Remplissez tous les champs</p>}
+                <button onClick={handlePublicSuggest} disabled={loading}
+                  style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+                  {loading ? 'Envoi...' : '💡 Envoyer ma question'}
                 </button>
               </>
             )}
