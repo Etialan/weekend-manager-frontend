@@ -2062,14 +2062,770 @@ function AdminHuntTab({ token }) {
   );
 }
 
+// ─── Helpers Quiz ─────────────────────────────────────────────────────────────
+
+const CHOICE_COLORS = { A: '#ef4444', B: '#3b82f6', C: '#f59e0b', D: '#22c55e' };
+const CHOICE_ICONS  = { A: '▲', B: '◆', C: '●', D: '■' };
+const EMPTY_Q_FORM  = {
+  text: '', timerSeconds: 30, correctChoiceId: 'A',
+  choices: [{ id: 'A', text: '' }, { id: 'B', text: '' }, { id: 'C', text: '' }, { id: 'D', text: '' }],
+};
+
+function fmtTime(ms) {
+  if (ms == null) return '–';
+  const s = Math.floor(ms / 1000);
+  return s < 60 ? s + 's' : Math.floor(s / 60) + 'm' + String(s % 60).padStart(2, '0') + 's';
+}
+
+// ─── AdminQuizTab ─────────────────────────────────────────────────────────────
+
+function AdminQuizTab({ token }) {
+  const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+  const [quizzes, setQuizzes]       = useState([]);
+  const [selected, setSelected]     = useState(null); // QuizSession object
+  const [questions, setQuestions]   = useState([]);
+  const [liveData, setLiveData]     = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [section, setSection]       = useState('questions');
+  const [newName, setNewName]       = useState('');
+  const [qForm, setQForm]           = useState(null);
+  const [loading, setLoading]       = useState(false);
+  const [presentation, setPresentation] = useState(false);
+  const [timeLeft, setTimeLeft]     = useState(0);
+
+  const loadQuizzes = async () => {
+    const r = await fetch(API_URL + '/quiz', { headers: th });
+    if (r.ok) setQuizzes(await r.json());
+  };
+  const loadQs = async (id) => {
+    const r = await fetch(API_URL + '/quiz/' + id + '/questions', { headers: th });
+    if (r.ok) setQuestions(await r.json());
+  };
+  const loadLive = async (id) => {
+    const r = await fetch(API_URL + '/quiz/' + id + '/live', { headers: th });
+    if (r.ok) setLiveData(await r.json());
+  };
+  const loadLeaderboard = async (id) => {
+    const r = await fetch(API_URL + '/quiz/' + id + '/leaderboard', { headers: th });
+    if (r.ok) setLeaderboard(await r.json());
+  };
+
+  useEffect(() => { loadQuizzes(); }, []);
+  useEffect(() => {
+    if (selected) { loadQs(selected._id); loadLive(selected._id); }
+  }, [selected]);
+  useEffect(() => {
+    if (!selected || section !== 'leaderboard') return;
+    loadLeaderboard(selected._id);
+  }, [selected, section]);
+
+  // Polling live toutes les 3s
+  useEffect(() => {
+    if (!selected) return;
+    const iv = setInterval(() => {
+      loadLive(selected._id);
+      // Rafraîchir aussi les questions pour voir les statuts à jour
+      loadQs(selected._id);
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [selected]);
+
+  // Timer countdown
+  useEffect(() => {
+    const q = liveData?.currentQuestion;
+    if (!q || q.status !== 'active' || !q.startedAt || !q.timerSeconds) { setTimeLeft(0); return; }
+    const update = () => {
+      const elapsed = (Date.now() - new Date(q.startedAt).getTime()) / 1000;
+      setTimeLeft(Math.max(0, q.timerSeconds - Math.floor(elapsed)));
+    };
+    update();
+    const iv = setInterval(update, 500);
+    return () => clearInterval(iv);
+  }, [liveData?.currentQuestion?._id, liveData?.currentQuestion?.status]);
+
+  const quizAction = async (action) => {
+    setLoading(true);
+    await fetch(API_URL + '/quiz/' + selected._id + '/' + action, { method: 'POST', headers: th });
+    await loadQuizzes();
+    const updated = quizzes.find(q => q._id === selected._id);
+    if (updated) setSelected(updated);
+    await loadLive(selected._id);
+    setLoading(false);
+  };
+
+  const saveQuestion = async () => {
+    if (!qForm.text.trim() || qForm.choices.some(c => !c.text.trim())) return;
+    setLoading(true);
+    if (qForm._id) {
+      await fetch(API_URL + '/quiz/' + selected._id + '/questions/' + qForm._id, { method: 'PUT', headers: th, body: JSON.stringify(qForm) });
+    } else {
+      await fetch(API_URL + '/quiz/' + selected._id + '/questions', { method: 'POST', headers: th, body: JSON.stringify(qForm) });
+    }
+    await loadQs(selected._id);
+    setQForm(null);
+    setLoading(false);
+  };
+
+  const deleteQuestion = async (qid) => {
+    if (!window.confirm('Supprimer cette question ?')) return;
+    setLoading(true);
+    await fetch(API_URL + '/quiz/' + selected._id + '/questions/' + qid, { method: 'DELETE', headers: th });
+    await loadQs(selected._id);
+    setLoading(false);
+  };
+
+  const approveQ = async (qid) => {
+    setLoading(true);
+    await fetch(API_URL + '/quiz/' + selected._id + '/questions/' + qid + '/approve', { method: 'PATCH', headers: th });
+    await loadQs(selected._id);
+    setLoading(false);
+  };
+  const rejectQ = async (qid) => {
+    setLoading(true);
+    await fetch(API_URL + '/quiz/' + selected._id + '/questions/' + qid + '/reject', { method: 'PATCH', headers: th });
+    await loadQs(selected._id);
+    setLoading(false);
+  };
+
+  const launchQuestion = async (qid) => {
+    setLoading(true);
+    await fetch(API_URL + '/quiz/' + selected._id + '/launch/' + qid, { method: 'POST', headers: th });
+    await Promise.all([loadLive(selected._id), loadQs(selected._id)]);
+    setLoading(false);
+  };
+  const revealQuestion = async (qid) => {
+    setLoading(true);
+    await fetch(API_URL + '/quiz/' + selected._id + '/reveal/' + qid, { method: 'POST', headers: th });
+    await Promise.all([loadLive(selected._id), loadQs(selected._id)]);
+    setLoading(false);
+  };
+
+  // ── Styles partagés ──
+  const card = { background: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', padding: '20px', marginBottom: '16px' };
+  const btnPrimary = { background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '9px 16px', fontWeight: 600, fontSize: '14px', cursor: 'pointer' };
+  const inputStyle = { border: '1.5px solid #e5e7eb', borderRadius: '8px', padding: '9px 12px', fontSize: '14px', width: '100%', outline: 'none', boxSizing: 'border-box' };
+
+  // ── Liste des quizzes ──
+  if (!selected) return (
+    <div>
+      <div style={card}>
+        <h2 style={{ fontWeight: 800, color: '#7c3aed', margin: '0 0 16px' }}>🎮 Quiz</h2>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && newName.trim() && (async () => { setLoading(true); await fetch(API_URL + '/quiz', { method: 'POST', headers: th, body: JSON.stringify({ name: newName }) }); setNewName(''); await loadQuizzes(); setLoading(false); })()}
+            placeholder="Nom du quiz…" style={{ ...inputStyle, flex: 1 }} />
+          <button disabled={loading || !newName.trim()} style={btnPrimary} onClick={async () => { setLoading(true); await fetch(API_URL + '/quiz', { method: 'POST', headers: th, body: JSON.stringify({ name: newName }) }); setNewName(''); await loadQuizzes(); setLoading(false); }}>Créer</button>
+        </div>
+        {quizzes.length === 0 && <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucun quiz créé</p>}
+        {quizzes.map(q => (
+          <div key={q._id} style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '14px 18px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => setSelected(q)}>
+              <div style={{ fontWeight: 700, fontSize: '15px' }}>{q.name}</div>
+              <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>{new Date(q.createdAt).toLocaleDateString('fr-FR')}</div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: q.status === 'active' ? '#059669' : q.status === 'finished' ? '#6b7280' : '#f59e0b', cursor: 'pointer' }} onClick={() => setSelected(q)}>
+                {q.status === 'idle' ? '⏸ En attente' : q.status === 'active' ? '▶ En cours' : '✓ Terminé'}
+              </span>
+              <button onClick={async (e) => { e.stopPropagation(); if (!window.confirm('Supprimer ce quiz et toutes ses données ?')) return; setLoading(true); await fetch(API_URL + '/quiz/' + q._id, { method: 'DELETE', headers: th }); await loadQuizzes(); setLoading(false); }}
+                style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', padding: '6px 10px', cursor: 'pointer', fontSize: '14px' }}>🗑</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Détail quiz ──
+  const quiz = quizzes.find(q => q._id === selected._id) || selected;
+  const approvedQs = questions.filter(q => q.approved);
+  const pendingQs  = questions.filter(q => !q.approved);
+  const currentQ   = liveData?.currentQuestion;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ ...card, borderLeft: '4px solid #7c3aed' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '13px', padding: 0, marginBottom: '4px' }}>← Tous les quiz</button>
+            <h2 style={{ fontWeight: 800, margin: '0 0 4px', fontSize: '20px' }}>{quiz.name}</h2>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: quiz.status === 'active' ? '#059669' : quiz.status === 'finished' ? '#6b7280' : '#f59e0b' }}>
+              {quiz.status === 'idle' ? '⏸ En attente' : quiz.status === 'active' ? '▶ En cours' : '✓ Terminé'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {quiz.status === 'idle' && <button onClick={() => quizAction('start')} disabled={loading} style={{ ...btnPrimary, background: '#059669' }}>▶ Démarrer</button>}
+            {quiz.status === 'active' && <button onClick={() => quizAction('finish')} disabled={loading} style={{ ...btnPrimary, background: '#6b7280' }}>■ Terminer</button>}
+            <button onClick={() => quizAction('reset')} disabled={loading} style={{ ...btnPrimary, background: '#dc2626' }}>↺ Reset</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto' }}>
+        {[['questions', '📝 Questions'], ['live', '🔴 Live'], ['leaderboard', '🏆 Scores']].map(([k, l]) => (
+          <button key={k} onClick={() => setSection(k)}
+            style={{ padding: '10px 18px', fontWeight: 600, fontSize: '14px', border: 'none', borderRadius: '8px', cursor: 'pointer', whiteSpace: 'nowrap',
+              background: section === k ? '#7c3aed' : '#f3f4f6', color: section === k ? 'white' : '#6b7280' }}>
+            {l}{k === 'live' && liveData ? ` (${liveData.participantCount})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Section Questions ── */}
+      {section === 'questions' && (
+        <div>
+          {/* Suggestions en attente */}
+          {pendingQs.length > 0 && (
+            <div style={{ ...card, borderLeft: '4px solid #f59e0b' }}>
+              <h3 style={{ fontWeight: 700, color: '#92400e', margin: '0 0 12px' }}>💡 Suggestions à valider ({pendingQs.length})</h3>
+              {pendingQs.map(q => (
+                <div key={q._id} style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px', padding: '12px', marginBottom: '8px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: '6px' }}>{q.text}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>Par : {q.proposedBy}</div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {q.choices.map(c => (
+                      <span key={c.id} style={{ background: c.id === q.correctChoiceId ? '#dcfce7' : '#f9fafb', border: '1px solid ' + (c.id === q.correctChoiceId ? '#86efac' : '#e5e7eb'), borderRadius: '6px', padding: '4px 10px', fontSize: '13px', fontWeight: c.id === q.correctChoiceId ? 700 : 400 }}>
+                        {c.id}. {c.text} {c.id === q.correctChoiceId ? '✓' : ''}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => approveQ(q._id)} style={{ ...btnPrimary, background: '#059669', padding: '6px 14px', fontSize: '13px' }}>✓ Approuver</button>
+                    <button onClick={() => rejectQ(q._id)} style={{ ...btnPrimary, background: '#dc2626', padding: '6px 14px', fontSize: '13px' }}>✗ Rejeter</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Formulaire ajout/édition */}
+          {qForm && (
+            <div style={{ ...card, borderLeft: '4px solid #7c3aed' }}>
+              <h3 style={{ fontWeight: 700, margin: '0 0 14px' }}>{qForm._id ? 'Modifier la question' : 'Nouvelle question'}</h3>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Question</label>
+                <textarea value={qForm.text} onChange={e => setQForm(f => ({ ...f, text: e.target.value }))}
+                  placeholder="Tapez la question ici…" rows={2}
+                  style={{ ...inputStyle, resize: 'vertical' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Choix de réponses</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {qForm.choices.map(c => (
+                    <div key={c.id} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ background: CHOICE_COLORS[c.id], color: 'white', borderRadius: '6px', padding: '8px 10px', fontWeight: 800, fontSize: '14px', minWidth: '34px', textAlign: 'center', flexShrink: 0 }}>
+                        {CHOICE_ICONS[c.id]}
+                      </div>
+                      <input value={c.text} onChange={e => setQForm(f => ({ ...f, choices: f.choices.map(ch => ch.id === c.id ? { ...ch, text: e.target.value } : ch) }))}
+                        placeholder={`Choix ${c.id}…`} style={{ ...inputStyle, flex: 1 }} />
+                      <input type="radio" name="correct" checked={qForm.correctChoiceId === c.id} onChange={() => setQForm(f => ({ ...f, correctChoiceId: c.id }))}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer' }} title="Bonne réponse" />
+                      <span style={{ fontSize: '11px', color: '#9ca3af' }}>✓</span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: '12px', color: '#6b7280', margin: '8px 0 0' }}>Sélectionnez ✓ pour marquer la bonne réponse</p>
+              </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Timer (secondes) — 0 = sans timer</label>
+                <input type="number" min={0} max={120} value={qForm.timerSeconds} onChange={e => setQForm(f => ({ ...f, timerSeconds: parseInt(e.target.value) || 0 }))}
+                  style={{ ...inputStyle, width: '100px' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={saveQuestion} disabled={loading || !qForm.text.trim() || qForm.choices.some(c => !c.text.trim())} style={btnPrimary}>
+                  {qForm._id ? 'Enregistrer' : 'Ajouter'}
+                </button>
+                <button onClick={() => setQForm(null)} style={{ ...btnPrimary, background: '#f3f4f6', color: '#374151' }}>Annuler</button>
+              </div>
+            </div>
+          )}
+
+          {/* Liste questions approuvées */}
+          <div style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ fontWeight: 700, margin: 0 }}>Questions ({approvedQs.length})</h3>
+              <button onClick={() => setQForm({ ...EMPTY_Q_FORM })} style={{ ...btnPrimary, padding: '7px 14px', fontSize: '13px' }}>+ Ajouter</button>
+            </div>
+            {approvedQs.length === 0 && <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucune question — ajoutez-en ou approuvez des suggestions</p>}
+            {approvedQs.map((q, idx) => (
+              <div key={q._id} style={{ border: '2px solid ' + (q.status === 'active' ? '#fcd34d' : q.status === 'revealed' || q.status === 'done' ? '#d1fae5' : '#e5e7eb'), borderRadius: '10px', padding: '12px', marginBottom: '8px', background: q.status === 'active' ? '#fffbeb' : 'white' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontWeight: 800, color: '#6b7280', fontSize: '13px' }}>Q{idx + 1}</span>
+                      <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '9999px',
+                        background: q.status === 'active' ? '#fef3c7' : q.status === 'revealed' || q.status === 'done' ? '#dcfce7' : '#f3f4f6',
+                        color: q.status === 'active' ? '#92400e' : q.status === 'revealed' || q.status === 'done' ? '#166534' : '#6b7280' }}>
+                        {q.status === 'active' ? '▶ Active' : q.status === 'revealed' ? '👁 Révélée' : q.status === 'done' ? '✓ Passée' : '⏸ En attente'}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 600, marginBottom: '6px', fontSize: '14px' }}>{q.text}</div>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {q.choices.map(c => (
+                        <span key={c.id} style={{ background: c.id === q.correctChoiceId ? '#dcfce7' : '#f9fafb', border: '1px solid ' + (c.id === q.correctChoiceId ? '#86efac' : '#e5e7eb'), borderRadius: '6px', padding: '3px 8px', fontSize: '12px', fontWeight: c.id === q.correctChoiceId ? 700 : 400 }}>
+                          {c.id}. {c.text}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                    <button onClick={() => setQForm({ ...q })} style={{ ...btnPrimary, background: '#e0e7ff', color: '#4338ca', padding: '6px 10px', fontSize: '13px' }}>✎</button>
+                    <button onClick={() => deleteQuestion(q._id)} style={{ ...btnPrimary, background: '#fee2e2', color: '#dc2626', padding: '6px 10px', fontSize: '13px' }}>🗑</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Section Live ── */}
+      {section === 'live' && (
+        <div>
+          {/* Panneau participants + état */}
+          <div style={{ ...card, borderLeft: '4px solid #7c3aed' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ fontWeight: 700, margin: 0, color: '#6d28d9' }}>🔴 En direct</h3>
+              <button onClick={() => setPresentation(true)} style={{ ...btnPrimary, background: '#1f2937', padding: '7px 14px', fontSize: '13px' }}>
+                📺 Mode présentation
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px' }}>
+              <div style={{ background: '#f0fdf4', borderRadius: '8px', padding: '10px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#059669' }}>{liveData?.participantCount || 0}</div>
+                <div style={{ fontSize: '12px', color: '#6b7280' }}>participants</div>
+              </div>
+              {currentQ && (
+                <div style={{ background: '#fef3c7', borderRadius: '8px', padding: '10px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: '#d97706' }}>{liveData?.answerCount || 0}</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>réponses reçues</div>
+                </div>
+              )}
+              {currentQ?.status === 'active' && currentQ.timerSeconds > 0 && (
+                <div style={{ background: timeLeft <= 5 ? '#fef2f2' : '#eff6ff', borderRadius: '8px', padding: '10px 16px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: timeLeft <= 5 ? '#dc2626' : '#2563eb' }}>{timeLeft}s</div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>restantes</div>
+                </div>
+              )}
+            </div>
+            {/* Participants */}
+            {liveData?.participants && liveData.participants.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {liveData.participants.map(p => (
+                  <span key={p._id} style={{ background: '#ede9fe', color: '#6d28d9', borderRadius: '20px', padding: '4px 12px', fontSize: '13px', fontWeight: 600 }}>{p.name}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Contrôle des questions */}
+          <div style={card}>
+            <h3 style={{ fontWeight: 700, margin: '0 0 12px' }}>Contrôle des questions</h3>
+            {approvedQs.length === 0 && <p style={{ color: '#9ca3af', textAlign: 'center' }}>Ajoutez des questions dans l'onglet Questions</p>}
+            {approvedQs.map((q, idx) => (
+              <div key={q._id} style={{ border: '2px solid ' + (q.status === 'active' ? '#fcd34d' : q.status === 'revealed' ? '#86efac' : q.status === 'done' ? '#d1d5db' : '#e5e7eb'), borderRadius: '10px', padding: '12px 16px', marginBottom: '8px', opacity: q.status === 'done' ? 0.5 : 1, background: q.status === 'active' ? '#fffbeb' : 'white' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#9ca3af', marginRight: '8px' }}>Q{idx + 1}</span>
+                    <span style={{ fontSize: '14px', fontWeight: q.status === 'active' ? 700 : 400 }}>{q.text.length > 60 ? q.text.slice(0, 60) + '…' : q.text}</span>
+                    {q.timerSeconds > 0 && <span style={{ marginLeft: '8px', fontSize: '12px', color: '#6b7280' }}>⏱ {q.timerSeconds}s</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                    {q.status === 'pending' && (
+                      <button onClick={() => launchQuestion(q._id)} disabled={loading || quiz.status !== 'active'} style={{ ...btnPrimary, background: '#059669', padding: '6px 12px', fontSize: '13px' }}>▶ Lancer</button>
+                    )}
+                    {q.status === 'active' && (
+                      <button onClick={() => revealQuestion(q._id)} disabled={loading} style={{ ...btnPrimary, background: '#7c3aed', padding: '6px 12px', fontSize: '13px' }}>👁 Révéler</button>
+                    )}
+                    {q.status === 'revealed' && (
+                      <>
+                        <span style={{ fontSize: '12px', color: '#059669', fontWeight: 700, alignSelf: 'center' }}>Réponse affichée</span>
+                        {approvedQs.findIndex(aq => aq.status === 'pending') !== -1 && (
+                          <button onClick={() => launchQuestion(approvedQs.find(aq => aq.status === 'pending')._id)} disabled={loading} style={{ ...btnPrimary, background: '#2563eb', padding: '6px 12px', fontSize: '13px' }}>→ Suivante</button>
+                        )}
+                      </>
+                    )}
+                    {(q.status === 'done') && <span style={{ fontSize: '12px', color: '#9ca3af' }}>✓</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Section Leaderboard ── */}
+      {section === 'leaderboard' && (
+        <div style={card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ fontWeight: 700, margin: 0 }}>🏆 Classement</h3>
+            <button onClick={() => loadLeaderboard(selected._id)} style={{ ...btnPrimary, padding: '7px 14px', fontSize: '13px' }}>↻ Actualiser</button>
+          </div>
+          {leaderboard.length === 0 ? (
+            <p style={{ color: '#9ca3af', textAlign: 'center' }}>Aucun participant encore</p>
+          ) : (
+            <div>
+              {leaderboard.map((p, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: i === 0 ? '#fefce8' : '#f9fafb', borderRadius: '10px', marginBottom: '8px', border: i === 0 ? '2px solid #fcd34d' : '2px solid transparent' }}>
+                  <span style={{ fontWeight: 800, fontSize: '20px', minWidth: '32px', textAlign: 'center' }}>
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                  </span>
+                  <span style={{ flex: 1, fontWeight: 700, fontSize: '15px' }}>{p.name}</span>
+                  <span style={{ fontWeight: 800, fontSize: '18px', color: '#7c3aed' }}>{p.correct}</span>
+                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>bonne{p.correct > 1 ? 's' : ''}</span>
+                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>⏱ {fmtTime(p.totalTimeMs)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Mode Présentation (overlay fullscreen) ── */}
+      {presentation && (() => {
+        const q = currentQ;
+        const timerPct = q?.timerSeconds > 0 && q?.startedAt
+          ? Math.max(0, timeLeft / q.timerSeconds * 100) : 100;
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: '#1e1b4b', zIndex: 1000, display: 'flex', flexDirection: 'column', padding: '24px' }}>
+            {/* Timer bar */}
+            {q?.status === 'active' && q.timerSeconds > 0 && (
+              <div style={{ height: '8px', background: '#3730a3', borderRadius: '4px', marginBottom: '20px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: timerPct + '%', background: timerPct > 50 ? '#22c55e' : timerPct > 20 ? '#f59e0b' : '#ef4444', transition: 'width 0.5s linear, background 0.5s' }} />
+              </div>
+            )}
+            {/* Titre quiz */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{ color: '#a5b4fc', fontSize: '16px', fontWeight: 700 }}>🎮 {quiz.name}</span>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                {liveData && <span style={{ color: '#a5b4fc', fontSize: '14px' }}>👥 {liveData.participantCount} • 💬 {liveData.answerCount || 0} réponses</span>}
+                {q?.status === 'active' && q.timerSeconds > 0 && (
+                  <span style={{ color: timeLeft <= 5 ? '#ef4444' : '#fbbf24', fontSize: '28px', fontWeight: 800 }}>{timeLeft}s</span>
+                )}
+                <button onClick={() => setPresentation(false)} style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 700 }}>✕ Quitter</button>
+              </div>
+            </div>
+
+            {!q ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ fontSize: '80px', marginBottom: '20px' }}>🎮</div>
+                <h1 style={{ color: 'white', fontSize: '36px', textAlign: 'center', margin: '0 0 12px' }}>{quiz.name}</h1>
+                <p style={{ color: '#a5b4fc', fontSize: '20px' }}>
+                  {quiz.status === 'idle' ? 'En attente de démarrage…' : quiz.status === 'finished' ? 'Quiz terminé !' : 'Prêt à lancer la prochaine question…'}
+                </p>
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                {/* Question */}
+                <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '16px', padding: '28px 32px', marginBottom: '24px', textAlign: 'center' }}>
+                  <p style={{ color: 'white', fontSize: 'clamp(20px, 3vw, 32px)', fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{q.text}</p>
+                </div>
+                {/* Choix en grille 2×2 */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', flex: 1 }}>
+                  {q.choices.map(c => {
+                    const isCorrect = q.status === 'revealed' && c.id === q.correctChoiceId;
+                    return (
+                      <div key={c.id} style={{ background: isCorrect ? '#22c55e' : CHOICE_COLORS[c.id], borderRadius: '16px', padding: '20px 24px', display: 'flex', alignItems: 'center', gap: '16px', opacity: q.status === 'revealed' && !isCorrect ? 0.35 : 1, transition: 'opacity 0.4s' }}>
+                        <span style={{ fontSize: '28px', fontWeight: 800, color: 'white', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</span>
+                        <span style={{ color: 'white', fontSize: 'clamp(16px, 2.5vw, 24px)', fontWeight: 700 }}>{c.text}</span>
+                        {isCorrect && <span style={{ marginLeft: 'auto', fontSize: '32px' }}>✓</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ─── QuizParticipantApp ────────────────────────────────────────────────────────
+
+function QuizParticipantApp({ token, participantName, onLogout }) {
+  const th = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+  const [quizState, setQuizState] = useState(null);
+  const [view, setView] = useState('loading');
+  const [selectedChoice, setSelectedChoice] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [suggestForm, setSuggestForm] = useState({ ...EMPTY_Q_FORM });
+  const [suggestStatus, setSuggestStatus] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [networkError, setNetworkError] = useState(null);
+
+  const pollState = async () => {
+    try {
+      setNetworkError(null);
+      const r = await fetch(API_URL + '/quiz/participant/state', { headers: th });
+      if (!r.ok) return;
+      const data = await r.json();
+      setQuizState(data);
+      const q = data.currentQuestion;
+      if (data.quiz.status === 'finished') {
+        setView('finished');
+      } else if (!q || q.status === 'pending' || q.status === 'done') {
+        setView('waiting');
+      } else if (q.status === 'active') {
+        setView(data.myAnswer ? 'answered' : 'question');
+      } else if (q.status === 'revealed') {
+        setView('reveal');
+      }
+    } catch (e) { setNetworkError('Connexion perdue'); }
+  };
+
+  useEffect(() => {
+    pollState();
+    const iv = setInterval(pollState, 2000);
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    if (view === 'finished') {
+      fetch(API_URL + '/quiz/participant/leaderboard', { headers: th })
+        .then(r => r.ok ? r.json() : []).then(setLeaderboard);
+    }
+  }, [view]);
+
+  // Timer countdown
+  useEffect(() => {
+    const q = quizState?.currentQuestion;
+    if (!q || q.status !== 'active' || !q.timerSeconds || !q.startedAt) { setTimeLeft(0); return; }
+    const update = () => {
+      const elapsed = (Date.now() - new Date(q.startedAt).getTime()) / 1000;
+      setTimeLeft(Math.max(0, q.timerSeconds - Math.floor(elapsed)));
+    };
+    update();
+    const iv = setInterval(update, 500);
+    return () => clearInterval(iv);
+  }, [quizState?.currentQuestion?._id, quizState?.currentQuestion?.status]);
+
+  const submitAnswer = async (choiceId) => {
+    if (submitting || !quizState?.currentQuestion) return;
+    setSelectedChoice(choiceId);
+    setSubmitting(true);
+    try {
+      await fetch(API_URL + '/quiz/participant/answer', {
+        method: 'POST', headers: th,
+        body: JSON.stringify({ questionId: quizState.currentQuestion._id, choiceId }),
+      });
+    } catch (e) { /* silently handled by polling */ }
+    setSubmitting(false);
+    await pollState();
+  };
+
+  const submitSuggestion = async () => {
+    if (!suggestForm.text.trim() || suggestForm.choices.some(c => !c.text.trim())) return;
+    setSubmitting(true);
+    const r = await fetch(API_URL + '/quiz/participant/suggest', { method: 'POST', headers: th, body: JSON.stringify(suggestForm) });
+    setSuggestStatus(r.ok ? 'ok' : 'error');
+    if (r.ok) { setSuggestForm({ ...EMPTY_Q_FORM }); setTimeout(() => { setShowSuggest(false); setSuggestStatus(null); }, 2000); }
+    setSubmitting(false);
+  };
+
+  const screenStyle = { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px 16px', background: 'linear-gradient(135deg, #1e1b4b 0%, #4c1d95 100%)', color: 'white', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' };
+  const cardStyle = { background: 'rgba(255,255,255,0.97)', color: '#1f2937', borderRadius: '20px', padding: '28px 24px', width: '100%', maxWidth: '420px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' };
+  const btn = (bg, mt = '12px') => ({ width: '100%', padding: '16px', fontSize: '17px', fontWeight: 700, background: bg, color: 'white', border: 'none', borderRadius: '12px', cursor: 'pointer', marginTop: mt, minHeight: '54px' });
+
+  if (networkError) return (
+    <div style={screenStyle}>
+      <div style={cardStyle}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '40px', marginBottom: '8px' }}>📡</div>
+          <p style={{ color: '#dc2626', fontWeight: 700 }}>{networkError}</p>
+          <button style={btn('#7c3aed')} onClick={pollState}>Réessayer</button>
+          <button style={btn('#6b7280', '8px')} onClick={onLogout}>Déconnexion</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (view === 'loading') return (
+    <div style={screenStyle}>
+      <div style={{ fontSize: '40px', marginBottom: '12px' }}>⏳</div>
+      <p style={{ fontSize: '18px' }}>Connexion…</p>
+    </div>
+  );
+
+  // ── Écran attente ──
+  if (view === 'waiting') return (
+    <div style={screenStyle}>
+      <div style={{ ...cardStyle, textAlign: 'center' }}>
+        <div style={{ fontSize: '60px', marginBottom: '12px' }}>🎮</div>
+        <h2 style={{ margin: '0 0 4px', fontWeight: 800 }}>{participantName}</h2>
+        <p style={{ color: '#7c3aed', fontWeight: 700, fontSize: '16px', margin: '0 0 16px' }}>{quizState?.quiz?.name}</p>
+        <p style={{ color: '#6b7280', fontSize: '15px' }}>
+          {quizState?.quiz?.status === 'idle' ? '⏸ Le quiz commence bientôt…' : '⏳ Prochaine question en approche…'}
+        </p>
+        {quizState?.quiz?.status === 'idle' && (
+          <div style={{ marginTop: '20px' }}>
+            {!showSuggest ? (
+              <button style={{ ...btn('#f59e0b'), width: 'auto', padding: '12px 24px', fontSize: '15px' }} onClick={() => setShowSuggest(true)}>
+                💡 Proposer une question
+              </button>
+            ) : (
+              <div style={{ textAlign: 'left', marginTop: '12px', background: '#fffbeb', border: '2px solid #fcd34d', borderRadius: '14px', padding: '16px' }}>
+                <h4 style={{ margin: '0 0 12px', color: '#92400e' }}>💡 Proposer une question</h4>
+                <textarea value={suggestForm.text} onChange={e => setSuggestForm(f => ({ ...f, text: e.target.value }))}
+                  placeholder="Votre question…" rows={2} style={{ width: '100%', border: '1.5px solid #fcd34d', borderRadius: '8px', padding: '8px', fontSize: '14px', boxSizing: 'border-box', marginBottom: '8px', resize: 'vertical' }} />
+                {suggestForm.choices.map(c => (
+                  <div key={c.id} style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ background: CHOICE_COLORS[c.id], color: 'white', borderRadius: '6px', padding: '6px 10px', fontWeight: 800, fontSize: '13px', minWidth: '30px', textAlign: 'center', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</div>
+                    <input value={c.text} onChange={e => setSuggestForm(f => ({ ...f, choices: f.choices.map(ch => ch.id === c.id ? { ...ch, text: e.target.value } : ch) }))}
+                      placeholder={`Choix ${c.id}…`} style={{ flex: 1, border: '1.5px solid #fcd34d', borderRadius: '6px', padding: '6px 8px', fontSize: '13px', boxSizing: 'border-box' }} />
+                    <input type="radio" name="suggestCorrect" checked={suggestForm.correctChoiceId === c.id} onChange={() => setSuggestForm(f => ({ ...f, correctChoiceId: c.id }))} style={{ width: '16px', height: '16px' }} />
+                  </div>
+                ))}
+                <p style={{ fontSize: '11px', color: '#92400e', margin: '4px 0 12px' }}>Sélectionnez ✓ pour la bonne réponse</p>
+                {suggestStatus === 'ok' && <p style={{ color: '#059669', fontWeight: 700, textAlign: 'center' }}>✅ Proposition envoyée !</p>}
+                {suggestStatus === 'error' && <p style={{ color: '#dc2626', fontWeight: 700, textAlign: 'center' }}>❌ Erreur — réessayez</p>}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button disabled={submitting || !suggestForm.text.trim() || suggestForm.choices.some(c => !c.text.trim())} onClick={submitSuggestion}
+                    style={{ flex: 1, padding: '10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
+                    Envoyer
+                  </button>
+                  <button onClick={() => { setShowSuggest(false); setSuggestStatus(null); }}
+                    style={{ flex: 1, padding: '10px', background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '14px' }}>
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        <button style={{ ...btn('#6b7280'), marginTop: '20px', width: 'auto', padding: '10px 20px', fontSize: '14px' }} onClick={onLogout}>Déconnexion</button>
+      </div>
+    </div>
+  );
+
+  // ── Écran question ──
+  if (view === 'question') {
+    const q = quizState.currentQuestion;
+    const timerPct = q.timerSeconds > 0 && q.startedAt ? Math.max(0, timeLeft / q.timerSeconds * 100) : 100;
+    return (
+      <div style={{ ...screenStyle, justifyContent: 'flex-start', paddingTop: '16px' }}>
+        <div style={{ width: '100%', maxWidth: '420px' }}>
+          {/* Timer bar */}
+          {q.timerSeconds > 0 && (
+            <div style={{ height: '8px', background: 'rgba(255,255,255,0.2)', borderRadius: '4px', marginBottom: '12px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: timerPct + '%', background: timerPct > 50 ? '#22c55e' : timerPct > 20 ? '#f59e0b' : '#ef4444', transition: 'width 0.5s linear, background 0.5s' }} />
+            </div>
+          )}
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '14px' }}>👤 {participantName}</span>
+            {q.timerSeconds > 0 && <span style={{ fontWeight: 800, fontSize: '22px', color: timeLeft <= 5 ? '#ef4444' : 'white' }}>{timeLeft}s</span>}
+          </div>
+          {/* Question */}
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '16px', padding: '20px', marginBottom: '16px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: '20px', fontWeight: 700, lineHeight: 1.4 }}>{q.text}</p>
+          </div>
+          {/* Choix */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            {q.choices.map(c => (
+              <button key={c.id} onClick={() => (timeLeft > 0 || !q.timerSeconds) && submitAnswer(c.id)}
+                disabled={submitting || (q.timerSeconds > 0 && timeLeft === 0)}
+                style={{ background: selectedChoice === c.id ? 'white' : CHOICE_COLORS[c.id], color: selectedChoice === c.id ? CHOICE_COLORS[c.id] : 'white', border: selectedChoice === c.id ? '3px solid white' : '3px solid transparent', borderRadius: '14px', padding: '18px 12px', fontSize: '16px', fontWeight: 700, cursor: 'pointer', minHeight: '80px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: (q.timerSeconds > 0 && timeLeft === 0) ? 0.5 : 1 }}>
+                <span style={{ fontSize: '22px' }}>{CHOICE_ICONS[c.id]}</span>
+                <span>{c.text}</span>
+              </button>
+            ))}
+          </div>
+          {q.timerSeconds > 0 && timeLeft === 0 && (
+            <p style={{ textAlign: 'center', marginTop: '16px', color: '#fbbf24', fontWeight: 700 }}>⏰ Temps écoulé !</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Écran en attente après réponse ──
+  if (view === 'answered') {
+    const q = quizState.currentQuestion;
+    return (
+      <div style={screenStyle}>
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
+          <div style={{ fontSize: '60px', marginBottom: '12px' }}>⏳</div>
+          <h2 style={{ margin: '0 0 8px' }}>Réponse envoyée !</h2>
+          <p style={{ color: '#6b7280', margin: '0 0 16px' }}>En attente de la révélation…</p>
+          <div style={{ background: CHOICE_COLORS[quizState.myAnswer?.choiceId] + '22', border: '2px solid ' + CHOICE_COLORS[quizState.myAnswer?.choiceId], borderRadius: '12px', padding: '12px 20px', display: 'inline-block', fontSize: '16px', fontWeight: 700, color: CHOICE_COLORS[quizState.myAnswer?.choiceId] }}>
+            {CHOICE_ICONS[quizState.myAnswer?.choiceId]} {q?.choices?.find(c => c.id === quizState.myAnswer?.choiceId)?.text}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Écran révélation ──
+  if (view === 'reveal') {
+    const q = quizState.currentQuestion;
+    const myAns = quizState.myAnswer;
+    const correct = myAns?.isCorrect;
+    const correctChoice = q?.choices?.find(c => c.id === q.correctChoiceId);
+    return (
+      <div style={screenStyle}>
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
+          <div style={{ fontSize: '64px', marginBottom: '8px' }}>{!myAns ? '😶' : correct ? '🎉' : '😬'}</div>
+          <h2 style={{ margin: '0 0 4px', color: !myAns ? '#6b7280' : correct ? '#059669' : '#dc2626', fontWeight: 800, fontSize: '22px' }}>
+            {!myAns ? 'Pas de réponse' : correct ? 'Bonne réponse !' : 'Raté !'}
+          </h2>
+          {myAns && <p style={{ color: '#6b7280', margin: '0 0 16px', fontSize: '14px' }}>Temps : {fmtTime(myAns.responseTimeMs ?? quizState.myAnswer?.responseTimeMs)}</p>}
+          <div style={{ background: '#dcfce7', border: '2px solid #86efac', borderRadius: '12px', padding: '14px 20px', marginBottom: '16px' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '12px', fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>Bonne réponse</p>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: '18px', color: '#166534' }}>
+              {CHOICE_ICONS[q?.correctChoiceId]} {correctChoice?.text}
+            </p>
+          </div>
+          <p style={{ color: '#9ca3af', fontSize: '13px' }}>En attente de la prochaine question…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Écran fin ──
+  if (view === 'finished') {
+    const myRank = leaderboard.findIndex(p => p.name === participantName) + 1;
+    return (
+      <div style={{ ...screenStyle, justifyContent: 'flex-start', paddingTop: '24px' }}>
+        <div style={{ ...cardStyle, maxWidth: '460px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <div style={{ fontSize: '60px', marginBottom: '8px' }}>🏆</div>
+            <h2 style={{ margin: '0 0 4px', fontWeight: 800 }}>Quiz terminé !</h2>
+            {myRank > 0 && <p style={{ color: '#7c3aed', fontWeight: 700, fontSize: '18px' }}>
+              {myRank === 1 ? '🥇' : myRank === 2 ? '🥈' : myRank === 3 ? '🥉' : `#${myRank}`} — {participantName}
+            </p>}
+          </div>
+          {leaderboard.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: p.name === participantName ? '#ede9fe' : i === 0 ? '#fefce8' : '#f9fafb', borderRadius: '10px', marginBottom: '6px', border: p.name === participantName ? '2px solid #7c3aed' : '2px solid transparent' }}>
+              <span style={{ fontWeight: 800, fontSize: '18px', minWidth: '28px' }}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
+              <span style={{ flex: 1, fontWeight: 700 }}>{p.name}</span>
+              <span style={{ fontWeight: 800, color: '#7c3aed' }}>{p.correct} ✓</span>
+              <span style={{ fontSize: '12px', color: '#9ca3af' }}>{fmtTime(p.totalTimeMs)}</span>
+            </div>
+          ))}
+          <button style={{ ...btn('#6b7280'), marginTop: '16px' }} onClick={onLogout}>Déconnexion</button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function WeekendManager() {
   const [token, setToken] = useState(localStorage.getItem('weekendToken') || null);
   const [role, setRole] = useState(localStorage.getItem('weekendRole') || null);
   const [teamName, setTeamName] = useState(localStorage.getItem('weekendTeamName') || null);
+  const [quizParticipantName, setQuizParticipantName] = useState(localStorage.getItem('weekendQuizName') || null);
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [loginTab, setLoginTab] = useState('family'); // 'family' | 'team'
+  const [loginTab, setLoginTab] = useState('family'); // 'family' | 'team' | 'quiz'
+  const [quizName, setQuizName] = useState('');
   const [teamCode, setTeamCode] = useState('');
   const [activeTab, setActiveTab] = useState('intro');
   const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
@@ -2194,13 +2950,42 @@ export default function WeekendManager() {
     setLoading(false);
   };
 
+  // ── Login Quiz ──
+  const handleQuizLogin = async () => {
+    if (!quizName.trim()) { setLoginError('Entrez un pseudo'); return; }
+    setLoading(true);
+    setLoginError('');
+    try {
+      const r = await fetch(API_URL + '/quiz/participant/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: quizName.trim() }),
+      });
+      const d = await r.json();
+      if (d.token) {
+        setToken(d.token);
+        setRole('quizParticipant');
+        setQuizParticipantName(d.participant.name);
+        localStorage.setItem('weekendToken', d.token);
+        localStorage.setItem('weekendRole', 'quizParticipant');
+        localStorage.setItem('weekendQuizName', d.participant.name);
+        setQuizName('');
+      } else {
+        setLoginError(d.error || 'Impossible de rejoindre le quiz');
+      }
+    } catch (e) { setLoginError('Erreur : ' + e.message); }
+    setLoading(false);
+  };
+
   const handleLogout = () => {
     setToken(null);
     setRole(null);
     setTeamName(null);
+    setQuizParticipantName(null);
     localStorage.removeItem('weekendToken');
     localStorage.removeItem('weekendRole');
     localStorage.removeItem('weekendTeamName');
+    localStorage.removeItem('weekendQuizName');
     setGuests([]);
   };
 
@@ -2404,11 +3189,11 @@ export default function WeekendManager() {
               50 ans d'Étienne !
             </h1>
           </div>
-          {/* Sélecteur famille / équipe */}
+          {/* Sélecteur famille / équipe / quiz */}
           <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '2px solid #e5e7eb', marginBottom: '20px' }}>
-            {[['family', '🏠 Famille'], ['team', '🎯 Équipe']].map(([k, l]) => (
+            {[['family', '🏠 Famille'], ['team', '🎯 Chasse'], ['quiz', '🎮 Quiz']].map(([k, l]) => (
               <button key={k} onClick={() => { setLoginTab(k); setLoginError(''); }}
-                style={{ flex: 1, padding: '10px', fontWeight: 700, fontSize: '14px', border: 'none', cursor: 'pointer',
+                style={{ flex: 1, padding: '10px', fontWeight: 700, fontSize: '13px', border: 'none', cursor: 'pointer',
                   background: loginTab === k ? '#4f46e5' : 'transparent',
                   color: loginTab === k ? 'white' : '#6b7280' }}>
                 {l}
@@ -2457,6 +3242,26 @@ export default function WeekendManager() {
                 </button>
               </>
             )}
+            {loginTab === 'quiz' && (
+              <>
+                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
+                  Entrez votre prénom pour rejoindre le quiz
+                </p>
+                <input
+                  type="text"
+                  placeholder="Votre prénom…"
+                  value={quizName}
+                  onChange={e => setQuizName(e.target.value)}
+                  onKeyPress={e => e.key === 'Enter' && handleQuizLogin()}
+                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '18px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }}
+                />
+                {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
+                <button onClick={handleQuizLogin} disabled={loading}
+                  style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
+                  {loading ? 'Connexion...' : '🎮 Rejoindre le quiz'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -2468,6 +3273,13 @@ export default function WeekendManager() {
   // ═══════════════════════════════════════════════════════
   if (role === 'team') {
     return <TeamApp token={token} teamName={teamName} onLogout={handleLogout} />;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // VUE QUIZ PARTICIPANT
+  // ═══════════════════════════════════════════════════════
+  if (role === 'quizParticipant') {
+    return <QuizParticipantApp token={token} participantName={quizParticipantName} onLogout={handleLogout} />;
   }
 
   // ═══════════════════════════════════════════════════════
@@ -2537,6 +3349,7 @@ export default function WeekendManager() {
             ['rooms',    '🛏️ Chambres'],
             ['meals',    '🍽️ Repas'],
             ['hunt',     '🎯 Chasse'],
+            ['quiz',     '🎮 Quiz'],
           ].map(([t, l]) => (
             <button
               key={t}
@@ -2827,6 +3640,10 @@ export default function WeekendManager() {
         {/* ── CHASSE admin ── */}
         {activeTab === 'hunt' && (
           <AdminHuntTab token={token} />
+        )}
+
+        {activeTab === 'quiz' && (
+          <AdminQuizTab token={token} />
         )}
 
       </main>
