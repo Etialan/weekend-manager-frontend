@@ -3004,6 +3004,8 @@ export default function WeekendManager() {
   const [loginError, setLoginError] = useState('');
   const [loginTab, setLoginTab] = useState('family'); // 'family' | 'team' | 'quiz'
   const [quizName, setQuizName] = useState('');
+  const [quizList, setQuizList] = useState([]);
+  const [selectedQuizId, setSelectedQuizId] = useState('');
   const [teamCode, setTeamCode] = useState('');
   const [activeTab, setActiveTab] = useState('intro');
   const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
@@ -3128,16 +3130,30 @@ export default function WeekendManager() {
     setLoading(false);
   };
 
+  // ── Chargement liste quiz (onglet Quiz) ──
+  useEffect(() => {
+    if (loginTab !== 'quiz' || token) return;
+    fetch(API_URL + '/quiz/public/list')
+      .then(r => r.ok ? r.json() : [])
+      .then(list => {
+        setQuizList(list);
+        if (list.length === 1) setSelectedQuizId(list[0]._id);
+        else setSelectedQuizId('');
+      })
+      .catch(() => setQuizList([]));
+  }, [loginTab, token]);
+
   // ── Login Quiz ──
   const handleQuizLogin = async () => {
     if (!quizName.trim()) { setLoginError('Entrez un pseudo'); return; }
+    if (quizList.length > 1 && !selectedQuizId) { setLoginError('Choisissez un quiz'); return; }
     setLoading(true);
     setLoginError('');
     try {
       const r = await fetch(API_URL + '/quiz/participant/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: quizName.trim() }),
+        body: JSON.stringify({ name: quizName.trim(), quizId: selectedQuizId || undefined }),
       });
       const d = await r.json();
       if (d.token) {
@@ -3416,13 +3432,28 @@ export default function WeekendManager() {
                 <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
                   Entrez votre prénom pour rejoindre le quiz
                 </p>
+                {quizList.length > 1 && (
+                  <select value={selectedQuizId} onChange={e => setSelectedQuizId(e.target.value)}
+                    style={{ border: '2px solid #c4b5fd', borderRadius: '10px', padding: '12px 16px', fontSize: '15px', fontWeight: 600, width: '100%', outline: 'none', boxSizing: 'border-box', color: selectedQuizId ? '#1f2937' : '#9ca3af', background: 'white', cursor: 'pointer' }}>
+                    <option value="">— Choisir un quiz —</option>
+                    {quizList.map(q => (
+                      <option key={q._id} value={q._id}>{q.name}{q.status === 'active' ? ' 🟢' : ' ⏳'}</option>
+                    ))}
+                  </select>
+                )}
+                {quizList.length === 0 && (
+                  <p style={{ color: '#f97316', fontSize: '13px', margin: 0, textAlign: 'center', fontWeight: 600 }}>
+                    ⚠️ Aucun quiz disponible pour le moment
+                  </p>
+                )}
                 <input type="text" placeholder="Votre prénom…" value={quizName}
                   onChange={e => setQuizName(e.target.value)}
                   onKeyPress={e => e.key === 'Enter' && handleQuizLogin()}
                   style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '18px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
                 {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
-                <button onClick={handleQuizLogin} disabled={loading}
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
+                <button onClick={handleQuizLogin}
+                  disabled={loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)}
+                  style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: (loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)) ? 'not-allowed' : 'pointer', opacity: (loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)) ? 0.5 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
                   {loading ? 'Connexion...' : '🎮 Rejoindre le quiz'}
                 </button>
               </>
