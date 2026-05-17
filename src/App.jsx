@@ -360,19 +360,210 @@ function RoomsTableViewer({ guests }) {
   );
 }
 
+// ─── Éditeur rich text (contenteditable + toolbar) ───────────────────────────
+function RichTextEditor({ value, onChange }) {
+  const ref = React.useRef(null);
+  const skipSync = React.useRef(false);
+
+  // Init uniquement au montage ou quand la valeur change depuis l'extérieur
+  useEffect(() => {
+    if (ref.current && !skipSync.current) {
+      ref.current.innerHTML = value || '';
+    }
+    skipSync.current = false;
+  }, [value]);
+
+  const exec = (cmd, val = null) => {
+    ref.current.focus();
+    document.execCommand(cmd, false, val);
+    skipSync.current = true;
+    onChange(ref.current.innerHTML);
+  };
+
+  const btnStyle = (active) => ({
+    padding: '5px 10px', border: '1px solid #d1d5db', borderRadius: '6px',
+    background: active ? '#4f46e5' : 'white', color: active ? 'white' : '#374151',
+    cursor: 'pointer', fontSize: '13px', fontWeight: 700, lineHeight: 1,
+  });
+
+  const COLORS = ['#1f2937','#dc2626','#d97706','#059669','#2563eb','#7c3aed','#db2777','#9ca3af'];
+  const SIZES  = [['Petit','1'],['Normal','3'],['Grand','5'],['Très grand','7']];
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px', padding: '8px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px 8px 0 0' }}>
+        <button onMouseDown={e => { e.preventDefault(); exec('bold'); }} style={btnStyle(false)} title="Gras"><b>G</b></button>
+        <button onMouseDown={e => { e.preventDefault(); exec('italic'); }} style={btnStyle(false)} title="Italique"><i>I</i></button>
+        <button onMouseDown={e => { e.preventDefault(); exec('underline'); }} style={btnStyle(false)} title="Souligné"><u>S</u></button>
+        <div style={{ width: '1px', background: '#e5e7eb', margin: '0 4px' }} />
+        <select onMouseDown={e => e.stopPropagation()}
+          onChange={e => { exec('fontSize', e.target.value); e.target.value = ''; }}
+          style={{ border: '1px solid #d1d5db', borderRadius: '6px', padding: '4px 6px', fontSize: '12px', cursor: 'pointer' }}>
+          <option value="">Taille…</option>
+          {SIZES.map(([label, val]) => <option key={val} value={val}>{label}</option>)}
+        </select>
+        <div style={{ width: '1px', background: '#e5e7eb', margin: '0 4px' }} />
+        <span style={{ fontSize: '12px', color: '#6b7280', alignSelf: 'center' }}>Couleur :</span>
+        {COLORS.map(c => (
+          <button key={c} onMouseDown={e => { e.preventDefault(); exec('foreColor', c); }}
+            style={{ width: '22px', height: '22px', background: c, border: '2px solid white', borderRadius: '50%', cursor: 'pointer', boxShadow: '0 0 0 1px #d1d5db', padding: 0 }} />
+        ))}
+        <div style={{ width: '1px', background: '#e5e7eb', margin: '0 4px' }} />
+        <button onMouseDown={e => { e.preventDefault(); exec('justifyLeft'); }} style={btnStyle(false)} title="Gauche">⬅</button>
+        <button onMouseDown={e => { e.preventDefault(); exec('justifyCenter'); }} style={btnStyle(false)} title="Centrer">≡</button>
+        <button onMouseDown={e => { e.preventDefault(); exec('justifyRight'); }} style={btnStyle(false)} title="Droite">➡</button>
+        <button onMouseDown={e => { e.preventDefault(); exec('removeFormat'); }} style={{ ...btnStyle(false), color: '#dc2626' }} title="Supprimer le formatage">✕</button>
+      </div>
+      {/* Zone d'édition */}
+      <div ref={ref} contentEditable suppressContentEditableWarning
+        onInput={() => { skipSync.current = true; onChange(ref.current.innerHTML); }}
+        style={{ border: '1px solid #d1d5db', borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '12px 14px', minHeight: '140px', fontSize: '14px', lineHeight: 1.7, outline: 'none', background: 'white' }}
+        data-placeholder="Chers tous, nous sommes ravis de vous accueillir…"
+      />
+    </div>
+  );
+}
+
+// ─── Compteur jusqu'à l'événement ─────────────────────────────────────────────
+function Countdown({ eventDate }) {
+  const [left, setLeft] = useState(null);
+
+  useEffect(() => {
+    if (!eventDate) return;
+    const tick = () => {
+      const diff = new Date(eventDate).getTime() - Date.now();
+      if (diff <= 0) { setLeft(null); return; }
+      setLeft({
+        j: Math.floor(diff / 86400000),
+        h: Math.floor((diff % 86400000) / 3600000),
+        m: Math.floor((diff % 3600000) / 60000),
+        s: Math.floor((diff % 60000) / 1000),
+      });
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [eventDate]);
+
+  if (!eventDate || !left) return null;
+
+  const unit = (val, label) => (
+    <div style={{ textAlign: 'center', minWidth: '64px' }}>
+      <div style={{ fontSize: '36px', fontWeight: 800, color: '#7c3aed', lineHeight: 1 }}>{String(val).padStart(2, '0')}</div>
+      <div style={{ fontSize: '11px', fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: '4px' }}>{label}</div>
+    </div>
+  );
+
+  return (
+    <div style={{ background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', border: '2px solid #c4b5fd', borderRadius: '16px', padding: '20px 24px', textAlign: 'center' }}>
+      <p style={{ margin: '0 0 14px', fontWeight: 700, color: '#6d28d9', fontSize: '14px' }}>🎉 Plus que…</p>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', alignItems: 'center' }}>
+        {unit(left.j, 'jours')}
+        <span style={{ fontSize: '28px', color: '#c4b5fd', fontWeight: 300, marginBottom: '18px' }}>:</span>
+        {unit(left.h, 'heures')}
+        <span style={{ fontSize: '28px', color: '#c4b5fd', fontWeight: 300, marginBottom: '18px' }}>:</span>
+        {unit(left.m, 'min')}
+        <span style={{ fontSize: '28px', color: '#c4b5fd', fontWeight: 300, marginBottom: '18px' }}>:</span>
+        {unit(left.s, 'sec')}
+      </div>
+    </div>
+  );
+}
+
+// ─── Widget météo (Open-Meteo, sans clé) ──────────────────────────────────────
+const WMO_ICON = (code) => {
+  if (code === 0) return '☀️';
+  if (code <= 2)  return '🌤️';
+  if (code === 3) return '☁️';
+  if (code <= 49) return '🌫️';
+  if (code <= 55) return '🌦️';
+  if (code <= 67) return '🌧️';
+  if (code <= 77) return '🌨️';
+  if (code <= 82) return '🌧️';
+  if (code <= 86) return '🌨️';
+  return '⛈️';
+};
+const WMO_LABEL = (code) => {
+  if (code === 0) return 'Ensoleillé';
+  if (code <= 2)  return 'Peu nuageux';
+  if (code === 3) return 'Couvert';
+  if (code <= 49) return 'Brouillard';
+  if (code <= 55) return 'Bruine';
+  if (code <= 67) return 'Pluie';
+  if (code <= 77) return 'Neige';
+  if (code <= 82) return 'Averses';
+  if (code <= 86) return 'Neige';
+  return 'Orage';
+};
+const FR_DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+function WeatherWidget({ lat, lng, label }) {
+  const [weather, setWeather] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!lat || !lng) return;
+    setError(false);
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Europe%2FParis&forecast_days=7`)
+      .then(r => r.json())
+      .then(d => setWeather(d.daily))
+      .catch(() => setError(true));
+  }, [lat, lng]);
+
+  if (!lat || !lng) return null;
+  if (error) return <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>⚠️ Météo indisponible</p>;
+  if (!weather) return <p style={{ color: '#9ca3af', fontSize: '13px', textAlign: 'center' }}>⏳ Chargement météo…</p>;
+
+  return (
+    <div style={{ background: 'white', borderRadius: '16px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+        <span style={{ fontSize: '20px' }}>🌤️</span>
+        <span style={{ fontWeight: 700, fontSize: '15px', color: '#1f2937' }}>Météo{label ? ` — ${label}` : ''}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+        {weather.time.map((date, i) => {
+          const d = new Date(date);
+          return (
+            <div key={date} style={{ textAlign: 'center', padding: '8px 4px', background: '#f9fafb', borderRadius: '10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#6b7280', marginBottom: '4px' }}>{FR_DAYS[d.getDay()]}</div>
+              <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '6px' }}>{d.getDate()}/{d.getMonth()+1}</div>
+              <div style={{ fontSize: '22px', marginBottom: '6px' }}>{WMO_ICON(weather.weathercode[i])}</div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626' }}>{Math.round(weather.temperature_2m_max[i])}°</div>
+              <div style={{ fontSize: '11px', color: '#2563eb' }}>{Math.round(weather.temperature_2m_min[i])}°</div>
+              {weather.precipitation_sum[i] > 0 && (
+                <div style={{ fontSize: '10px', color: '#0891b2', marginTop: '2px' }}>💧{weather.precipitation_sum[i]}mm</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: '10px', color: '#d1d5db', textAlign: 'right', margin: '8px 0 0' }}>Source : Open-Meteo</p>
+    </div>
+  );
+}
+
 // ─── Admin : onglet Accueil ───────────────────────────────────────────────────
 function AdminAccueilTab({ content, onSave, saving }) {
   const [form, setForm] = useState({
-    welcomeTitle: content.welcomeTitle || '',
-    welcomeText:  content.welcomeText  || '',
+    welcomeTitle:  content.welcomeTitle  || '',
+    welcomeText:   content.welcomeText   || '',
     welcomeImages: content.welcomeImages || [],
+    eventDate:     content.eventDate     || '',
+    venueLat:      content.venueLat      || '',
+    venueLng:      content.venueLng      || '',
+    venueLabel:    content.venueLabel    || '',
   });
 
   useEffect(() => {
     setForm({
-      welcomeTitle: content.welcomeTitle || '',
-      welcomeText:  content.welcomeText  || '',
+      welcomeTitle:  content.welcomeTitle  || '',
+      welcomeText:   content.welcomeText   || '',
       welcomeImages: content.welcomeImages || [],
+      eventDate:     content.eventDate     || '',
+      venueLat:      content.venueLat      || '',
+      venueLng:      content.venueLng      || '',
+      venueLabel:    content.venueLabel    || '',
     });
   }, [content]);
 
@@ -385,8 +576,11 @@ function AdminAccueilTab({ content, onSave, saving }) {
     }));
   };
 
+  const inp = { width: '100%', border: '1px solid #d1d5db', borderRadius: '8px', padding: '9px 12px', fontSize: '14px', boxSizing: 'border-box' };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* ── Texte d'accueil ── */}
       <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <h3 style={{ fontWeight: 700, color: '#4f46e5', marginBottom: '20px', fontSize: '16px' }}>🏠 Contenu de la page d'accueil</h3>
         <div style={{ marginBottom: '14px' }}>
@@ -394,31 +588,19 @@ function AdminAccueilTab({ content, onSave, saving }) {
           <input type="text" value={form.welcomeTitle}
             onChange={e => setForm(f => ({ ...f, welcomeTitle: e.target.value }))}
             placeholder="Ex : Bienvenue au week-end des 50 ans !"
-            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', boxSizing: 'border-box' }}
-          />
+            style={inp} />
         </div>
         <div style={{ marginBottom: '20px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
-            Texte <span style={{ fontWeight: 400, color: '#9ca3af' }}>(les sauts de ligne sont conservés)</span>
-          </label>
-          <textarea value={form.welcomeText}
-            onChange={e => setForm(f => ({ ...f, welcomeText: e.target.value }))}
-            rows={8} placeholder={"Chers tous,\n\nNous sommes ravis de vous accueillir..."}
-            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px 14px', fontSize: '14px', boxSizing: 'border-box', resize: 'vertical', lineHeight: 1.6 }}
-          />
+          <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Texte</label>
+          <RichTextEditor value={form.welcomeText} onChange={v => setForm(f => ({ ...f, welcomeText: v }))} />
         </div>
-        <div style={{ marginBottom: '24px' }}>
+        <div style={{ marginBottom: '8px' }}>
           <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '10px' }}>Photos à afficher sur la page</label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
             {allPhotos.map(photo => {
               const selected = form.welcomeImages.includes(photo);
               return (
-                <div key={photo} onClick={() => togglePhoto(photo)} style={{
-                  cursor: 'pointer', borderRadius: '10px', overflow: 'hidden',
-                  border: `3px solid ${selected ? '#4f46e5' : 'transparent'}`,
-                  boxShadow: selected ? '0 0 0 1px #4f46e5' : '0 1px 4px rgba(0,0,0,0.12)',
-                  opacity: selected ? 1 : 0.5, transition: 'all 0.2s',
-                }}>
+                <div key={photo} onClick={() => togglePhoto(photo)} style={{ cursor: 'pointer', borderRadius: '10px', overflow: 'hidden', border: `3px solid ${selected ? '#4f46e5' : 'transparent'}`, boxShadow: selected ? '0 0 0 1px #4f46e5' : '0 1px 4px rgba(0,0,0,0.12)', opacity: selected ? 1 : 0.5, transition: 'all 0.2s' }}>
                   <img src={`/photos/${photo}`} alt="" style={{ width: '100%', height: '64px', objectFit: 'cover', display: 'block' }} />
                   {selected && <div style={{ background: '#4f46e5', color: 'white', fontSize: '10px', fontWeight: 700, textAlign: 'center', padding: '2px' }}>✓</div>}
                 </div>
@@ -427,12 +609,52 @@ function AdminAccueilTab({ content, onSave, saving }) {
           </div>
           <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '6px' }}>Cliquez pour sélectionner / désélectionner</p>
         </div>
-        <button onClick={() => onSave({ welcomeTitle: form.welcomeTitle, welcomeText: form.welcomeText, welcomeImages: form.welcomeImages })}
-          disabled={saving}
-          style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '11px 28px', fontWeight: 700, fontSize: '14px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
-          {saving ? 'Sauvegarde...' : '💾 Sauvegarder'}
-        </button>
       </div>
+
+      {/* ── Date & compteur ── */}
+      <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <h3 style={{ fontWeight: 700, color: '#7c3aed', marginBottom: '16px', fontSize: '16px' }}>⏳ Compteur jusqu'à l'événement</h3>
+        <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>Date et heure de l'événement</label>
+        <input type="datetime-local" value={form.eventDate}
+          onChange={e => setForm(f => ({ ...f, eventDate: e.target.value }))}
+          style={{ ...inp, width: 'auto' }} />
+        {form.eventDate && (
+          <div style={{ marginTop: '16px' }}>
+            <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>Aperçu :</p>
+            <Countdown eventDate={form.eventDate} />
+          </div>
+        )}
+      </div>
+
+      {/* ── Météo ── */}
+      <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <h3 style={{ fontWeight: 700, color: '#0891b2', marginBottom: '16px', fontSize: '16px' }}>🌤️ Météo du lieu</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Latitude</label>
+            <input type="text" value={form.venueLat} onChange={e => setForm(f => ({ ...f, venueLat: e.target.value }))}
+              placeholder="ex : 47.3220" style={inp} />
+          </div>
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Longitude</label>
+            <input type="text" value={form.venueLng} onChange={e => setForm(f => ({ ...f, venueLng: e.target.value }))}
+              placeholder="ex : 5.0415" style={inp} />
+          </div>
+        </div>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>Nom du lieu (affiché)</label>
+          <input type="text" value={form.venueLabel} onChange={e => setForm(f => ({ ...f, venueLabel: e.target.value }))}
+            placeholder="ex : Domaine de Bel Air, Beaune" style={inp} />
+        </div>
+        <p style={{ fontSize: '11px', color: '#9ca3af', margin: '0 0 12px' }}>💡 Retrouvez les coordonnées GPS sur <strong>maps.google.com</strong> → clic droit sur le lieu → copier les coordonnées</p>
+        {form.venueLat && form.venueLng && <WeatherWidget lat={form.venueLat} lng={form.venueLng} label={form.venueLabel} />}
+      </div>
+
+      <button onClick={() => onSave({ welcomeTitle: form.welcomeTitle, welcomeText: form.welcomeText, welcomeImages: form.welcomeImages, eventDate: form.eventDate, venueLat: form.venueLat, venueLng: form.venueLng, venueLabel: form.venueLabel })}
+        disabled={saving}
+        style={{ background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', padding: '13px 32px', fontWeight: 700, fontSize: '14px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1, alignSelf: 'flex-start' }}>
+        {saving ? 'Sauvegarde...' : '💾 Sauvegarder'}
+      </button>
     </div>
   );
 }
@@ -594,10 +816,10 @@ function AdminPlanningTab({ content, onSave, saving }) {
 
 // ─── Viewer : onglet Accueil ──────────────────────────────────────────────────
 function ViewerAccueilTab({ content }) {
-  const { welcomeTitle, welcomeText, welcomeImages } = content;
+  const { welcomeTitle, welcomeText, welcomeImages, eventDate, venueLat, venueLng, venueLabel } = content;
   const hasContent = welcomeTitle || welcomeText || (welcomeImages && welcomeImages.length > 0);
 
-  if (!hasContent) return (
+  if (!hasContent && !eventDate && !venueLat) return (
     <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
       <div style={{ fontSize: '48px', marginBottom: '12px' }}>🏠</div>
       <p>La page d'accueil n'a pas encore été renseignée.</p>
@@ -607,20 +829,28 @@ function ViewerAccueilTab({ content }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {welcomeTitle && <h2 style={{ fontSize: '26px', fontWeight: 800, color: '#1f2937', margin: 0 }}>{welcomeTitle}</h2>}
+
+      {/* Compteur */}
+      {eventDate && <Countdown eventDate={eventDate} />}
+
+      {/* Texte formaté (HTML) */}
       {welcomeText && (
-        <div style={{ background: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: 1.8, color: '#374151' }}>
-          {welcomeText}
-        </div>
+        <div style={{ background: 'white', borderRadius: '14px', padding: '24px', boxShadow: '0 2px 10px rgba(0,0,0,0.07)', fontSize: '15px', lineHeight: 1.8, color: '#374151' }}
+          dangerouslySetInnerHTML={{ __html: welcomeText }} />
       )}
+
+      {/* Photos */}
       {welcomeImages && welcomeImages.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: welcomeImages.length === 1 ? '1fr' : '1fr 1fr', gap: '12px' }}>
           {welcomeImages.map(photo => (
             <img key={photo} src={`/photos/${photo}`} alt=""
-              style={{ width: '100%', borderRadius: '14px', objectFit: 'cover', height: welcomeImages.length === 1 ? '320px' : '200px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'block' }}
-            />
+              style={{ width: '100%', borderRadius: '14px', objectFit: 'cover', height: welcomeImages.length === 1 ? '320px' : '200px', boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'block' }} />
           ))}
         </div>
       )}
+
+      {/* Météo */}
+      {venueLat && venueLng && <WeatherWidget lat={venueLat} lng={venueLng} label={venueLabel} />}
     </div>
   );
 }
@@ -3318,7 +3548,7 @@ export default function WeekendManager() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [activeTab, setActiveTab] = useState('intro');
-  const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
+  const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [], eventDate: '', venueLat: '', venueLng: '', venueLabel: '' });
   const [contentSaving, setContentSaving] = useState(false);
   const [guests, setGuests] = useState([]);
   const [loading, setLoading] = useState(false);
