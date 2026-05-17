@@ -771,12 +771,128 @@ function ViewerApp({ guests, content, onLogout }) {
     };
   };
 
+  // ── Sous-auth Chasse ──
+  const [teamToken, setTeamToken] = useState(localStorage.getItem('weekendTeamToken') || null);
+  const [teamNameLocal, setTeamNameLocal] = useState(localStorage.getItem('weekendTeamName') || null);
+  const [teamCodeInput, setTeamCodeInput] = useState('');
+  const [teamLoginError, setTeamLoginError] = useState('');
+  const [teamLoginLoading, setTeamLoginLoading] = useState(false);
+
+  const handleTeamJoin = async () => {
+    if (!teamCodeInput.trim()) { setTeamLoginError('Entrez un code à 4 chiffres'); return; }
+    setTeamLoginLoading(true); setTeamLoginError('');
+    try {
+      const r = await fetch(API_URL + '/hunt/team/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessCode: teamCodeInput.trim() }),
+      });
+      const d = await r.json();
+      if (d.token) {
+        setTeamToken(d.token);
+        setTeamNameLocal(d.team.name);
+        localStorage.setItem('weekendTeamToken', d.token);
+        localStorage.setItem('weekendTeamName', d.team.name);
+        setTeamCodeInput('');
+      } else { setTeamLoginError(d.error || 'Code invalide'); }
+    } catch (e) { setTeamLoginError('Erreur réseau'); }
+    setTeamLoginLoading(false);
+  };
+
+  const handleTeamLeave = () => {
+    setTeamToken(null); setTeamNameLocal(null);
+    localStorage.removeItem('weekendTeamToken');
+    localStorage.removeItem('weekendTeamName');
+    setActiveTab('accueil');
+  };
+
+  // ── Sous-auth Quiz ──
+  const [quizToken, setQuizToken] = useState(localStorage.getItem('weekendQuizToken') || null);
+  const [quizNameLocal, setQuizNameLocal] = useState(localStorage.getItem('weekendQuizName') || null);
+  const [quizNameInput, setQuizNameInput] = useState('');
+  const [quizListLocal, setQuizListLocal] = useState([]);
+  const [selectedQuizIdLocal, setSelectedQuizIdLocal] = useState('');
+  const [quizLoginError, setQuizLoginError] = useState('');
+  const [quizLoginLoading, setQuizLoginLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== 'quiz' || quizToken) return;
+    fetch(API_URL + '/quiz/public/list')
+      .then(r => r.ok ? r.json() : [])
+      .then(list => {
+        setQuizListLocal(list);
+        if (list.length === 1) setSelectedQuizIdLocal(list[0]._id);
+        else setSelectedQuizIdLocal('');
+      })
+      .catch(() => setQuizListLocal([]));
+  }, [activeTab, quizToken]);
+
+  const handleQuizJoin = async () => {
+    if (!quizNameInput.trim()) { setQuizLoginError('Entrez votre prénom'); return; }
+    if (quizListLocal.length > 1 && !selectedQuizIdLocal) { setQuizLoginError('Choisissez un quiz'); return; }
+    setQuizLoginLoading(true); setQuizLoginError('');
+    try {
+      const r = await fetch(API_URL + '/quiz/participant/join', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: quizNameInput.trim(), quizId: selectedQuizIdLocal || undefined }),
+      });
+      const d = await r.json();
+      if (d.token) {
+        setQuizToken(d.token);
+        setQuizNameLocal(d.participant.name);
+        localStorage.setItem('weekendQuizToken', d.token);
+        localStorage.setItem('weekendQuizName', d.participant.name);
+        setQuizNameInput('');
+      } else { setQuizLoginError(d.error || 'Impossible de rejoindre'); }
+    } catch (e) { setQuizLoginError('Erreur réseau'); }
+    setQuizLoginLoading(false);
+  };
+
+  const handleQuizLeave = () => {
+    setQuizToken(null); setQuizNameLocal(null);
+    localStorage.removeItem('weekendQuizToken');
+    localStorage.removeItem('weekendQuizName');
+    setActiveTab('accueil');
+  };
+
+  // ── Suggestions publiques ──
+  const [suggestName, setSuggestName] = useState('');
+  const [suggestForm, setSuggestForm] = useState({ ...EMPTY_Q_FORM });
+  const [suggestStatus, setSuggestStatus] = useState(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+
+  const handleSuggest = async () => {
+    if (!suggestName.trim() || !suggestForm.text.trim() || suggestForm.choices.some(c => !c.text.trim())) {
+      setSuggestStatus('error'); return;
+    }
+    setSuggestLoading(true); setSuggestStatus(null);
+    try {
+      const r = await fetch(API_URL + '/quiz/public/suggest', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: suggestName.trim(), ...suggestForm }),
+      });
+      if (r.ok) { setSuggestStatus('ok'); setSuggestForm({ ...EMPTY_Q_FORM }); setSuggestName(''); }
+      else setSuggestStatus('error');
+    } catch (e) { setSuggestStatus('error'); }
+    setSuggestLoading(false);
+  };
+
+  // ── Rendu plein écran si sous-app active ──
+  if (activeTab === 'hunt' && teamToken) {
+    return <TeamApp token={teamToken} teamName={teamNameLocal} onLogout={handleTeamLeave} />;
+  }
+  if (activeTab === 'quiz' && quizToken) {
+    return <QuizParticipantApp token={quizToken} participantName={quizNameLocal} onLogout={handleQuizLeave} />;
+  }
+
   const viewerTabs = [
     ['accueil',  '🏠 Accueil'],
     ['planning', '📅 Planning'],
     ['guests',   `👨‍👩‍👧 Invités (${attendingGuests.length})`],
     ['rooms',    '🛏️ Chambres'],
     ['meals',    '🍽️ Repas'],
+    ['hunt',     '🎯 Chasse'],
+    ['quiz',     '🎮 Quiz'],
+    ['suggest',  '💡 Suggestions'],
   ];
 
   return (
@@ -1019,6 +1135,90 @@ function ViewerApp({ guests, content, onLogout }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ── CHASSE ── */}
+        {activeTab === 'hunt' && (
+          <div style={{ maxWidth: '400px', margin: '0 auto', textAlign: 'center' }}>
+            <div style={{ fontSize: '64px', marginBottom: '12px' }}>🎯</div>
+            <h2 style={{ fontWeight: 800, color: '#059669', marginBottom: '8px' }}>Chasse au trésor</h2>
+            <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '14px' }}>Entrez le code à 4 chiffres de votre équipe</p>
+            <input type="tel" inputMode="numeric" maxLength={4} placeholder="0000" value={teamCodeInput}
+              onChange={e => setTeamCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              onKeyPress={e => e.key === 'Enter' && handleTeamJoin()}
+              style={{ border: '2px solid #d1fae5', borderRadius: '12px', padding: '14px 20px', fontSize: '36px', fontWeight: 800, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center', letterSpacing: '14px', marginBottom: '12px' }} />
+            {teamLoginError && <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '8px' }}>{teamLoginError}</p>}
+            <button onClick={handleTeamJoin} disabled={teamLoginLoading}
+              style={{ width: '100%', background: 'linear-gradient(135deg, #059669, #0ea5e9)', color: 'white', border: 'none', borderRadius: '12px', padding: '14px', fontWeight: 700, fontSize: '16px', cursor: teamLoginLoading ? 'not-allowed' : 'pointer', opacity: teamLoginLoading ? 0.7 : 1 }}>
+              {teamLoginLoading ? 'Connexion...' : '🎯 Rejoindre mon équipe'}
+            </button>
+          </div>
+        )}
+
+        {/* ── QUIZ ── */}
+        {activeTab === 'quiz' && (
+          <div style={{ maxWidth: '400px', margin: '0 auto', textAlign: 'center' }}>
+            <div style={{ fontSize: '64px', marginBottom: '12px' }}>🎮</div>
+            <h2 style={{ fontWeight: 800, color: '#7c3aed', marginBottom: '8px' }}>Quiz</h2>
+            <p style={{ color: '#6b7280', marginBottom: '24px', fontSize: '14px' }}>Entrez votre prénom pour participer</p>
+            {quizListLocal.length > 1 && (
+              <select value={selectedQuizIdLocal} onChange={e => setSelectedQuizIdLocal(e.target.value)}
+                style={{ width: '100%', border: '2px solid #c4b5fd', borderRadius: '10px', padding: '12px 14px', fontSize: '15px', fontWeight: 600, outline: 'none', boxSizing: 'border-box', background: 'white', marginBottom: '12px', cursor: 'pointer' }}>
+                <option value="">— Choisir un quiz —</option>
+                {quizListLocal.map(q => <option key={q._id} value={q._id}>{q.name}{q.status === 'active' ? ' 🟢' : ' ⏳'}</option>)}
+              </select>
+            )}
+            {quizListLocal.length === 0 && (
+              <p style={{ color: '#f97316', fontSize: '14px', fontWeight: 600, marginBottom: '16px' }}>⚠️ Aucun quiz disponible pour le moment</p>
+            )}
+            <input type="text" placeholder="Votre prénom…" value={quizNameInput}
+              onChange={e => setQuizNameInput(e.target.value)}
+              onKeyPress={e => e.key === 'Enter' && handleQuizJoin()}
+              style={{ border: '2px solid #e5e7eb', borderRadius: '12px', padding: '14px 20px', fontSize: '20px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center', marginBottom: '12px' }} />
+            {quizLoginError && <p style={{ color: '#dc2626', fontSize: '13px', marginBottom: '8px' }}>{quizLoginError}</p>}
+            <button onClick={handleQuizJoin}
+              disabled={quizLoginLoading || quizListLocal.length === 0 || (quizListLocal.length > 1 && !selectedQuizIdLocal)}
+              style={{ width: '100%', background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '12px', padding: '14px', fontWeight: 700, fontSize: '16px', cursor: 'pointer', opacity: (quizLoginLoading || quizListLocal.length === 0) ? 0.5 : 1 }}>
+              {quizLoginLoading ? 'Connexion...' : '🎮 Rejoindre le quiz'}
+            </button>
+          </div>
+        )}
+
+        {/* ── SUGGESTIONS ── */}
+        {activeTab === 'suggest' && (
+          <div style={{ maxWidth: '480px', margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '56px', marginBottom: '8px' }}>💡</div>
+              <h2 style={{ fontWeight: 800, color: '#d97706', marginBottom: '4px' }}>Vos Suggestions pour le Quiz</h2>
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>Proposez une question — l'admin l'ajoutera au bon quiz</p>
+            </div>
+            <div style={{ background: 'white', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input type="text" placeholder="Votre prénom…" value={suggestName}
+                onChange={e => setSuggestName(e.target.value)}
+                style={{ border: '2px solid #fcd34d', borderRadius: '10px', padding: '12px 14px', fontSize: '15px', fontWeight: 700, outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
+              <textarea value={suggestForm.text} onChange={e => setSuggestForm(f => ({ ...f, text: e.target.value }))}
+                placeholder="Votre question…" rows={2}
+                style={{ border: '2px solid #fcd34d', borderRadius: '8px', padding: '10px 12px', fontSize: '14px', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
+              {suggestForm.choices.map(c => (
+                <div key={c.id} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div style={{ background: CHOICE_COLORS[c.id], color: 'white', borderRadius: '7px', padding: '7px 10px', fontWeight: 800, fontSize: '14px', minWidth: '32px', textAlign: 'center', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</div>
+                  <input value={c.text} onChange={e => setSuggestForm(f => ({ ...f, choices: f.choices.map(ch => ch.id === c.id ? { ...ch, text: e.target.value } : ch) }))}
+                    placeholder={`Choix ${c.id}…`}
+                    style={{ flex: 1, border: '1.5px solid #fcd34d', borderRadius: '7px', padding: '8px 10px', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }} />
+                  <input type="radio" name="viewerSuggestCorrect" checked={suggestForm.correctChoiceId === c.id}
+                    onChange={() => setSuggestForm(f => ({ ...f, correctChoiceId: c.id }))}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', flexShrink: 0 }} title="Bonne réponse" />
+                </div>
+              ))}
+              <p style={{ fontSize: '12px', color: '#92400e', margin: 0 }}>✓ = sélectionnez la bonne réponse</p>
+              {suggestStatus === 'ok' && <p style={{ color: '#059669', fontWeight: 700, textAlign: 'center', margin: 0 }}>✅ Question envoyée ! Merci 🎉</p>}
+              {suggestStatus === 'error' && <p style={{ color: '#dc2626', fontWeight: 700, textAlign: 'center', margin: 0 }}>❌ Remplissez tous les champs</p>}
+              <button onClick={handleSuggest} disabled={suggestLoading}
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: suggestLoading ? 'not-allowed' : 'pointer', opacity: suggestLoading ? 0.7 : 1 }}>
+                {suggestLoading ? 'Envoi…' : '💡 Envoyer ma suggestion'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -3115,18 +3315,8 @@ function QuizParticipantApp({ token, participantName, onLogout }) {
 export default function WeekendManager() {
   const [token, setToken] = useState(localStorage.getItem('weekendToken') || null);
   const [role, setRole] = useState(localStorage.getItem('weekendRole') || null);
-  const [teamName, setTeamName] = useState(localStorage.getItem('weekendTeamName') || null);
-  const [quizParticipantName, setQuizParticipantName] = useState(localStorage.getItem('weekendQuizName') || null);
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [loginTab, setLoginTab] = useState('family'); // 'family' | 'team' | 'quiz'
-  const [quizName, setQuizName] = useState('');
-  const [quizList, setQuizList] = useState([]);
-  const [selectedQuizId, setSelectedQuizId] = useState('');
-  const [teamCode, setTeamCode] = useState('');
-  const [publicSuggestName, setPublicSuggestName] = useState('');
-  const [publicSuggestForm, setPublicSuggestForm] = useState({ ...EMPTY_Q_FORM });
-  const [publicSuggestStatus, setPublicSuggestStatus] = useState(null); // null | 'ok' | 'error'
   const [activeTab, setActiveTab] = useState('intro');
   const [content, setContent] = useState({ welcomeTitle: '', welcomeText: '', welcomeImages: [], planning: [] });
   const [contentSaving, setContentSaving] = useState(false);
@@ -3221,107 +3411,15 @@ export default function WeekendManager() {
     setLoading(false);
   };
 
-  // ── Login équipe ──
-  const handleTeamLogin = async () => {
-    if (!teamCode.trim()) { setLoginError('Entrez un code à 4 chiffres'); return; }
-    setLoading(true);
-    setLoginError('');
-    try {
-      const r = await fetch(API_URL + '/hunt/team/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessCode: teamCode.trim() }),
-      });
-      const d = await r.json();
-      if (d.token) {
-        setToken(d.token);
-        setRole('team');
-        setTeamName(d.team.name);
-        localStorage.setItem('weekendToken', d.token);
-        localStorage.setItem('weekendRole', 'team');
-        localStorage.setItem('weekendTeamName', d.team.name);
-        setTeamCode('');
-      } else {
-        setLoginError(d.error || 'Code invalide');
-      }
-    } catch (e) {
-      setLoginError('Erreur de connexion : ' + e.message);
-    }
-    setLoading(false);
-  };
-
-  // ── Chargement liste quiz (onglet Quiz) ──
-  useEffect(() => {
-    if (loginTab !== 'quiz' || token) return;
-    fetch(API_URL + '/quiz/public/list')
-      .then(r => r.ok ? r.json() : [])
-      .then(list => {
-        setQuizList(list);
-        if (list.length === 1) setSelectedQuizId(list[0]._id);
-        else setSelectedQuizId('');
-      })
-      .catch(() => setQuizList([]));
-  }, [loginTab, token]);
-
-  // ── Login Quiz ──
-  const handleQuizLogin = async () => {
-    if (!quizName.trim()) { setLoginError('Entrez un pseudo'); return; }
-    if (quizList.length > 1 && !selectedQuizId) { setLoginError('Choisissez un quiz'); return; }
-    setLoading(true);
-    setLoginError('');
-    try {
-      const r = await fetch(API_URL + '/quiz/participant/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: quizName.trim(), quizId: selectedQuizId || undefined }),
-      });
-      const d = await r.json();
-      if (d.token) {
-        setToken(d.token);
-        setRole('quizParticipant');
-        setQuizParticipantName(d.participant.name);
-        localStorage.setItem('weekendToken', d.token);
-        localStorage.setItem('weekendRole', 'quizParticipant');
-        localStorage.setItem('weekendQuizName', d.participant.name);
-        setQuizName('');
-      } else {
-        setLoginError(d.error || 'Impossible de rejoindre le quiz');
-      }
-    } catch (e) { setLoginError('Erreur : ' + e.message); }
-    setLoading(false);
-  };
-
-  // ── Suggérer une question (sans compte) ──
-  const handlePublicSuggest = async () => {
-    if (!publicSuggestName.trim()) { setPublicSuggestStatus('error'); return; }
-    if (!publicSuggestForm.text.trim() || publicSuggestForm.choices.some(c => !c.text.trim())) { setPublicSuggestStatus('error'); return; }
-    setLoading(true);
-    setPublicSuggestStatus(null);
-    try {
-      const r = await fetch(API_URL + '/quiz/public/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: publicSuggestName.trim(), ...publicSuggestForm }),
-      });
-      if (r.ok) {
-        setPublicSuggestStatus('ok');
-        setPublicSuggestForm({ ...EMPTY_Q_FORM });
-        setPublicSuggestName('');
-      } else {
-        setPublicSuggestStatus('error');
-      }
-    } catch (e) { setPublicSuggestStatus('error'); }
-    setLoading(false);
-  };
-
   const handleLogout = () => {
     setToken(null);
     setRole(null);
-    setTeamName(null);
-    setQuizParticipantName(null);
     localStorage.removeItem('weekendToken');
     localStorage.removeItem('weekendRole');
+    // Nettoyer aussi les tokens de sous-apps
+    localStorage.removeItem('weekendTeamToken');
     localStorage.removeItem('weekendTeamName');
+    localStorage.removeItem('weekendQuizToken');
     localStorage.removeItem('weekendQuizName');
     setGuests([]);
   };
@@ -3496,144 +3594,27 @@ export default function WeekendManager() {
   // ═══════════════════════════════════════════════════════
   if (!token) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px',
-        position: 'relative',
-      }}>
-      {/* Fond carrousel */}
-      <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
-        <HeroCarousel />
-        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.15)' }} />
-      </div>
-        <div style={{
-          background: 'rgba(255,255,255,0.95)',
-          backdropFilter: 'blur(12px)',
-          borderRadius: '20px',
-          boxShadow: '0 16px 48px rgba(0,0,0,0.3)',
-          padding: '44px 40px',
-          width: '100%',
-          maxWidth: '380px',
-          position: 'relative',
-          zIndex: 1,
-        }}>
-          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '8px' }}>🎉</div>
-            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1f2937', margin: '0 0 4px' }}>
-              50 ans d'Étienne !
-            </h1>
-          </div>
-          {/* Sélecteur famille / équipe / quiz / suggérer */}
-          <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '2px solid #e5e7eb', marginBottom: '20px', flexWrap: 'wrap' }}>
-            {[['family', '🏠', 'Famille'], ['team', '🎯', 'Chasse'], ['quiz', '🎮', 'Quiz'], ['suggest', '💡', 'Suggérer']].map(([k, icon, label]) => (
-              <button key={k} onClick={() => { setLoginTab(k); setLoginError(''); setPublicSuggestStatus(null); }}
-                style={{ flex: 1, padding: '9px 4px', fontWeight: 700, fontSize: '12px', border: 'none', cursor: 'pointer', minWidth: '60px',
-                  background: loginTab === k ? '#4f46e5' : 'transparent',
-                  color: loginTab === k ? 'white' : '#6b7280' }}>
-                {icon} {label}
-              </button>
-            ))}
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', position: 'relative' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 0 }}>
+          <HeroCarousel />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.15)' }} />
+        </div>
+        <div style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)', borderRadius: '20px', boxShadow: '0 16px 48px rgba(0,0,0,0.3)', padding: '44px 40px', width: '100%', maxWidth: '380px', position: 'relative', zIndex: 1 }}>
+          <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+            <div style={{ fontSize: '56px', marginBottom: '10px' }}>🎉</div>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#1f2937', margin: '0 0 6px' }}>50 ans d'Étienne !</h1>
+            <p style={{ color: '#9ca3af', fontSize: '13px', margin: 0 }}>Entrez le mot de passe pour accéder au site</p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {loginTab === 'family' && (
-              <>
-                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
-                  Entrez le mot de passe pour accéder au site
-                </p>
-                <input type="password" placeholder="Mot de passe" value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  onKeyPress={e => e.key === 'Enter' && handleLogin()}
-                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '15px', width: '100%', outline: 'none', boxSizing: 'border-box' }} />
-                {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
-                <button onClick={handleLogin} disabled={loading}
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #db2777)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
-                  {loading ? 'Connexion...' : 'Accéder au site'}
-                </button>
-              </>
-            )}
-            {loginTab === 'team' && (
-              <>
-                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
-                  Entrez le code à 4 chiffres de votre équipe
-                </p>
-                <input type="tel" inputMode="numeric" maxLength={4} placeholder="0000" value={teamCode}
-                  onChange={e => setTeamCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  onKeyPress={e => e.key === 'Enter' && handleTeamLogin()}
-                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '32px', fontWeight: 800, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center', letterSpacing: '12px' }} />
-                {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
-                <button onClick={handleTeamLogin} disabled={loading}
-                  style={{ background: 'linear-gradient(135deg, #059669, #0ea5e9)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(5,150,105,0.35)' }}>
-                  {loading ? 'Connexion...' : '🎯 Rejoindre la chasse'}
-                </button>
-              </>
-            )}
-            {loginTab === 'quiz' && (
-              <>
-                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
-                  Entrez votre prénom pour rejoindre le quiz
-                </p>
-                {quizList.length > 1 && (
-                  <select value={selectedQuizId} onChange={e => setSelectedQuizId(e.target.value)}
-                    style={{ border: '2px solid #c4b5fd', borderRadius: '10px', padding: '12px 16px', fontSize: '15px', fontWeight: 600, width: '100%', outline: 'none', boxSizing: 'border-box', color: selectedQuizId ? '#1f2937' : '#9ca3af', background: 'white', cursor: 'pointer' }}>
-                    <option value="">— Choisir un quiz —</option>
-                    {quizList.map(q => (
-                      <option key={q._id} value={q._id}>{q.name}{q.status === 'active' ? ' 🟢' : ' ⏳'}</option>
-                    ))}
-                  </select>
-                )}
-                {quizList.length === 0 && (
-                  <p style={{ color: '#f97316', fontSize: '13px', margin: 0, textAlign: 'center', fontWeight: 600 }}>
-                    ⚠️ Aucun quiz disponible pour le moment
-                  </p>
-                )}
-                <input type="text" placeholder="Votre prénom…" value={quizName}
-                  onChange={e => setQuizName(e.target.value)}
-                  onKeyPress={e => e.key === 'Enter' && handleQuizLogin()}
-                  style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '18px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
-                {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
-                <button onClick={handleQuizLogin}
-                  disabled={loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)}
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: (loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)) ? 'not-allowed' : 'pointer', opacity: (loading || quizList.length === 0 || (quizList.length > 1 && !selectedQuizId)) ? 0.5 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
-                  {loading ? 'Connexion...' : '🎮 Rejoindre le quiz'}
-                </button>
-              </>
-            )}
-            {loginTab === 'suggest' && (
-              <>
-                <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0, textAlign: 'center' }}>
-                  Proposez une question — l'admin l'ajoutera au bon quiz
-                </p>
-                <input type="text" placeholder="Votre prénom…" value={publicSuggestName}
-                  onChange={e => setPublicSuggestName(e.target.value)}
-                  style={{ border: '2px solid #fcd34d', borderRadius: '10px', padding: '11px 14px', fontSize: '15px', fontWeight: 700, width: '100%', outline: 'none', boxSizing: 'border-box', textAlign: 'center' }} />
-                <textarea value={publicSuggestForm.text}
-                  onChange={e => setPublicSuggestForm(f => ({ ...f, text: e.target.value }))}
-                  placeholder="Votre question…" rows={2}
-                  style={{ border: '2px solid #fcd34d', borderRadius: '8px', padding: '10px', fontSize: '14px', width: '100%', boxSizing: 'border-box', resize: 'vertical', outline: 'none' }} />
-                {publicSuggestForm.choices.map(c => (
-                  <div key={c.id} style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <div style={{ background: CHOICE_COLORS[c.id], color: 'white', borderRadius: '6px', padding: '6px 8px', fontWeight: 800, fontSize: '13px', minWidth: '28px', textAlign: 'center', flexShrink: 0 }}>{CHOICE_ICONS[c.id]}</div>
-                    <input value={c.text}
-                      onChange={e => setPublicSuggestForm(f => ({ ...f, choices: f.choices.map(ch => ch.id === c.id ? { ...ch, text: e.target.value } : ch) }))}
-                      placeholder={`Choix ${c.id}…`}
-                      style={{ flex: 1, border: '1.5px solid #fcd34d', borderRadius: '6px', padding: '7px 8px', fontSize: '13px', boxSizing: 'border-box', outline: 'none' }} />
-                    <input type="radio" name="psCorrect" checked={publicSuggestForm.correctChoiceId === c.id}
-                      onChange={() => setPublicSuggestForm(f => ({ ...f, correctChoiceId: c.id }))}
-                      style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-                  </div>
-                ))}
-                <p style={{ fontSize: '11px', color: '#92400e', margin: '0' }}>✓ = bonne réponse</p>
-                {publicSuggestStatus === 'ok' && <p style={{ color: '#059669', fontWeight: 700, textAlign: 'center', margin: 0 }}>✅ Question proposée ! Merci 🎉</p>}
-                {publicSuggestStatus === 'error' && <p style={{ color: '#dc2626', fontWeight: 700, textAlign: 'center', margin: 0 }}>❌ Remplissez tous les champs</p>}
-                <button onClick={handlePublicSuggest} disabled={loading}
-                  style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-                  {loading ? 'Envoi...' : '💡 Envoyer ma question'}
-                </button>
-              </>
-            )}
+            <input type="password" placeholder="Mot de passe" value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyPress={e => e.key === 'Enter' && handleLogin()}
+              style={{ border: '2px solid #e5e7eb', borderRadius: '10px', padding: '13px 16px', fontSize: '15px', width: '100%', outline: 'none', boxSizing: 'border-box' }} />
+            {loginError && <p style={{ color: '#dc2626', fontSize: '13px', margin: 0, textAlign: 'center' }}>{loginError}</p>}
+            <button onClick={handleLogin} disabled={loading}
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #db2777)', color: 'white', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 700, fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(124,58,237,0.35)' }}>
+              {loading ? 'Connexion...' : '🎉 Accéder au site'}
+            </button>
           </div>
         </div>
       </div>
@@ -3641,21 +3622,7 @@ export default function WeekendManager() {
   }
 
   // ═══════════════════════════════════════════════════════
-  // VUE ÉQUIPE (chasse au trésor)
-  // ═══════════════════════════════════════════════════════
-  if (role === 'team') {
-    return <TeamApp token={token} teamName={teamName} onLogout={handleLogout} />;
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // VUE QUIZ PARTICIPANT
-  // ═══════════════════════════════════════════════════════
-  if (role === 'quizParticipant') {
-    return <QuizParticipantApp token={token} participantName={quizParticipantName} onLogout={handleLogout} />;
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // VUE VIEWER
+  // VUE VIEWER (famille + chasse + quiz + suggestions)
   // ═══════════════════════════════════════════════════════
   if (role === 'viewer') {
     return <ViewerApp guests={guests} content={content} onLogout={handleLogout} />;
