@@ -1541,6 +1541,8 @@ function MediaBtn({ uploading, uploadStatus, uploadError, uploadedMedia, onUploa
 
 function TeamApp({ token, teamName, onLogout }) {
   const [state, setState] = useState(null);
+  const [hintData, setHintData] = useState(null);       // { label, gpsLat, gpsLng } une fois révélé
+  const [hintConfirm, setHintConfirm] = useState(false); // affiche la confirmation avant d'appeler
   const [view, setView] = useState('loading');
   const [gpsError, setGpsError] = useState(null);
   const [position, setPosition] = useState(null);
@@ -1702,7 +1704,20 @@ function TeamApp({ token, teamName, onLogout }) {
   const handleContinue = async () => {
     setAnswer('');
     setAnswerResult(null);
+    setHintData(null);
+    setHintConfirm(false);
     await loadState();
+  };
+
+  const handleHint = async () => {
+    setHintConfirm(false);
+    try {
+      const r = await fetch(API_URL + '/hunt/team/hint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      });
+      if (r.ok) setHintData(await r.json());
+    } catch (e) {}
   };
 
   const screenStyle = {
@@ -1805,8 +1820,13 @@ function TeamApp({ token, teamName, onLogout }) {
     <div style={{ ...screenStyle, justifyContent: 'flex-start', paddingTop: '24px', paddingBottom: '24px' }}>
       <div style={{ ...cardStyle, maxWidth: '480px' }}>
         <div style={{ fontSize: '40px', textAlign: 'center', marginBottom: '4px' }}>🎯</div>
-        <h3 style={{ color: '#065f46', textAlign: 'center', margin: '0 0 16px' }}>Vous êtes arrivés !</h3>
+        <h3 style={{ color: '#065f46', textAlign: 'center', margin: '0 0 8px' }}>Vous êtes arrivés !</h3>
         <Progress />
+
+        {/* ── Bandeau d'explication ── */}
+        <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '12px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#166534', lineHeight: 1.6 }}>
+          <strong>🎬 Comment ça marche :</strong> réalisez le challenge et <strong>filmez-le</strong>, déposez votre vidéo/photo, puis répondez à la question pour découvrir la prochaine étape !
+        </div>
 
         {/* ── Section 1 : Activité ── */}
         <div style={{ background: '#ecfdf5', border: '2px solid #6ee7b7', borderRadius: '14px', padding: '16px', marginBottom: '16px' }}>
@@ -1868,6 +1888,46 @@ function TeamApp({ token, teamName, onLogout }) {
           >
             {submitting ? '…' : 'Valider ✓'}
           </button>
+
+          {/* ── Hint / solution avec pénalité ── */}
+          {!hintData && !hintConfirm && (
+            <button onClick={() => setHintConfirm(true)}
+              style={{ width: '100%', marginTop: '10px', padding: '11px', fontSize: '14px', fontWeight: 600, background: 'transparent', color: '#9ca3af', border: '1.5px dashed #d1d5db', borderRadius: '10px', cursor: 'pointer' }}>
+              🆘 Je suis bloqué(e) — voir la solution
+            </button>
+          )}
+
+          {hintConfirm && !hintData && (
+            <div style={{ background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '10px', padding: '14px', marginTop: '10px' }}>
+              <p style={{ margin: '0 0 10px', fontSize: '14px', color: '#991b1b', fontWeight: 600, textAlign: 'center' }}>
+                ⚠️ Cette action révèle le nom et les coordonnées GPS de l'étape.<br />
+                <span style={{ fontWeight: 400 }}>Une pénalité sera enregistrée pour votre équipe.</span>
+              </p>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleHint}
+                  style={{ flex: 1, padding: '10px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
+                  Oui, révéler 🔓
+                </button>
+                <button onClick={() => setHintConfirm(false)}
+                  style={{ flex: 1, padding: '10px', background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '14px', cursor: 'pointer' }}>
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+
+          {hintData && (
+            <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginTop: '10px' }}>
+              <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>🆘 Solution dévoilée — pénalité enregistrée</p>
+              <p style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700, color: '#78350f' }}>📍 {hintData.label}</p>
+              {hintData.gpsLat && hintData.gpsLng && (
+                <a href={`https://maps.google.com/?q=${hintData.gpsLat},${hintData.gpsLng}`} target="_blank" rel="noreferrer"
+                  style={{ display: 'block', background: '#f59e0b', color: 'white', borderRadius: '8px', padding: '10px', textAlign: 'center', fontWeight: 700, fontSize: '14px', textDecoration: 'none' }}>
+                  🗺️ Ouvrir dans Google Maps
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
       </div>
@@ -2288,6 +2348,9 @@ function AdminHuntTab({ token }) {
             const resolvedOrder = (t.stageOrder || []).map(id =>
               stages.find(s => String(s._id) === String(id))
             );
+            // Hint badges: cross-ref with scoreboard data if loaded
+            const teamScore = scoreboard && scoreboard.teams.find(st => String(st.teamId) === String(t._id));
+            const stageHintUsed = (stageId) => teamScore && teamScore.completions.some(c => String(c.stageId) === String(stageId) && c.hintUsed);
             // Calcul des distances entre étapes consécutives
             const segmentDistances = resolvedOrder.map((stage, idx) => {
               if (idx === 0 || !stage || !resolvedOrder[idx - 1]) return null;
@@ -2310,6 +2373,11 @@ function AdminHuntTab({ token }) {
                       <span style={{ fontSize: '12px', fontWeight: 700, color: statusColor(t.status) }}>
                         {t.status === 'finished' ? '✓ Terminé' : `▶ Étape ${t.currentStageIndex + 1}/${t.stageOrder ? t.stageOrder.length : 0}`}
                       </span>
+                      {teamScore && teamScore.hintsUsed > 0 && (
+                        <span title="Indices utilisés (pénalités)" style={{ fontSize: '12px', background: '#fee2e2', color: '#dc2626', borderRadius: '20px', padding: '3px 10px', fontWeight: 700 }}>
+                          🆘 ×{teamScore.hintsUsed} indice{teamScore.hintsUsed > 1 ? 's' : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '6px' }}>
@@ -2366,6 +2434,10 @@ function AdminHuntTab({ token }) {
                         <span style={{ flex: 1, fontSize: '13px', fontWeight: isCurrent ? 700 : 400, color: '#1f2937' }}>
                           {stage ? stage.label : <span style={{ color: '#dc2626' }}>Étape introuvable</span>}
                         </span>
+                        {/* Badge indice utilisé */}
+                        {stage && stageHintUsed(stage._id) && (
+                          <span title="Indice utilisé (pénalité)" style={{ fontSize: '11px', background: '#fee2e2', color: '#dc2626', borderRadius: '10px', padding: '2px 6px', fontWeight: 700, flexShrink: 0 }}>🆘</span>
+                        )}
                         {/* Flèches de réordonnancement (seulement si partie pas encore démarrée) */}
                         {hunt.status === 'idle' && (
                           <div style={{ display: 'flex', gap: '2px' }}>
@@ -2433,6 +2505,7 @@ function AdminHuntTab({ token }) {
                     <th style={{ padding: '12px', textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Équipe</th>
                     <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Étapes</th>
                     <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Temps total</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#dc2626', textTransform: 'uppercase' }}>🆘 Indices</th>
                     <th style={{ padding: '12px', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase' }}>Statut</th>
                   </tr>
                 </thead>
@@ -2448,6 +2521,12 @@ function AdminHuntTab({ token }) {
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center', fontFamily: 'monospace', fontWeight: 600 }}>
                         {fmtDuration(t.totalTime)}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        {t.hintsUsed > 0
+                          ? <span style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '20px', padding: '3px 10px', fontSize: '13px', fontWeight: 700 }}>🆘 ×{t.hintsUsed}</span>
+                          : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>
+                        }
                       </td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>
                         <span style={{ background: statusColor(t.status) + '22', color: statusColor(t.status), borderRadius: '20px', padding: '3px 10px', fontSize: '12px', fontWeight: 700 }}>
