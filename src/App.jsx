@@ -1121,6 +1121,7 @@ function ViewerApp({ guests, content, onLogout }) {
     ['rooms',    '🛏️ Chambres'],
     ['meals',    '🍽️ Repas'],
     ['hunt',     '🎯 Chasse'],
+    ['galerie',  '📸 Galerie'],
     ['quiz',     '🎮 Quiz'],
     ['suggest',  '💡 Suggestions'],
   ];
@@ -1416,6 +1417,9 @@ function ViewerApp({ guests, content, onLogout }) {
         )}
 
         {/* ── SUGGESTIONS ── */}
+        {/* ── GALERIE ── */}
+        {activeTab === 'galerie' && <ViewerGalleryTab />}
+
         {activeTab === 'suggest' && (
           <div style={{ maxWidth: '480px', margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
@@ -1453,6 +1457,174 @@ function ViewerApp({ guests, content, onLogout }) {
         )}
 
       </main>
+    </div>
+  );
+}
+
+// ─── Galerie famille (viewer) ────────────────────────────────────────────────
+function ViewerGalleryTab() {
+  const viewerToken = localStorage.getItem('weekendToken');
+  const authH = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + viewerToken };
+
+  const [gallery, setGallery] = React.useState([]);
+  const [loadingGal, setLoadingGal] = React.useState(true);
+  const [uploading, setUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState('');
+  const [uploadStatus, setUploadStatus] = React.useState(null); // 'ok' | 'error' | null
+  const [uploaderName, setUploaderName] = React.useState(
+    localStorage.getItem('galleryUploaderName') || ''
+  );
+  const fileRef = React.useRef(null);
+
+  const loadGallery = async () => {
+    try {
+      const r = await fetch(API_URL + '/hunt/viewer/gallery', { headers: authH });
+      if (r.ok) setGallery(await r.json());
+    } catch {}
+    setLoadingGal(false);
+  };
+
+  React.useEffect(() => { loadGallery(); }, []);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!uploaderName.trim()) { setUploadError('Entrez votre prénom'); return; }
+    if (file.size > 50 * 1024 * 1024) { setUploadError('Fichier trop volumineux (max 50 MB)'); return; }
+    setUploading(true); setUploadError(''); setUploadStatus(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLD_PRESET);
+      const cldRes = await fetch(
+        'https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/auto/upload',
+        { method: 'POST', body: fd }
+      );
+      if (!cldRes.ok) throw new Error('Échec upload Cloudinary');
+      const cld = await cldRes.json();
+      const r = await fetch(API_URL + '/hunt/viewer/media', {
+        method: 'POST',
+        headers: authH,
+        body: JSON.stringify({
+          url: cld.secure_url,
+          publicId: cld.public_id,
+          resourceType: cld.resource_type,
+          uploaderName: uploaderName.trim(),
+        }),
+      });
+      if (r.ok) {
+        setUploadStatus('ok');
+        localStorage.setItem('galleryUploaderName', uploaderName.trim());
+        await loadGallery();
+      } else { throw new Error('Erreur serveur'); }
+    } catch (err) {
+      setUploadError(err.message);
+      setUploadStatus('error');
+    }
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  // Grouper : uploads équipe par teamName, uploads famille par uploaderName
+  const groups = {};
+  gallery.forEach(m => {
+    const key = m.uploadedBy === 'viewer'
+      ? '📸 ' + (m.uploaderName || 'Famille')
+      : '👥 ' + (m.teamName || 'Équipe');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(m);
+  });
+
+  return (
+    <div>
+      {/* ── Upload section ── */}
+      <div style={{ background: 'white', borderRadius: '16px', padding: '20px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+        <h3 style={{ fontWeight: 700, margin: '0 0 14px', color: '#1f2937' }}>📤 Ajouter vos photos</h3>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder="Votre prénom…"
+            value={uploaderName}
+            onChange={e => { setUploaderName(e.target.value); setUploadError(''); }}
+            style={{ flex: 1, minWidth: '130px', padding: '10px 14px', border: '2px solid #e5e7eb', borderRadius: '10px', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <button
+            onClick={() => { setUploadStatus(null); setUploadError(''); fileRef.current && fileRef.current.click(); }}
+            disabled={uploading || !uploaderName.trim()}
+            style={{
+              padding: '10px 18px',
+              background: uploading || !uploaderName.trim() ? '#e5e7eb' : '#7c3aed',
+              color: uploading || !uploaderName.trim() ? '#9ca3af' : 'white',
+              border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '14px',
+              cursor: uploading || !uploaderName.trim() ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {uploading ? '⏳ Envoi…' : '📷 Ajouter une photo / vidéo'}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleUpload} />
+        </div>
+        {uploadError && <p style={{ color: '#dc2626', margin: '0 0 6px', fontSize: '13px' }}>❌ {uploadError}</p>}
+        {uploadStatus === 'ok' && <p style={{ color: '#059669', margin: '0 0 6px', fontSize: '13px' }}>✅ Photo ajoutée à la galerie !</p>}
+        <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>Vos photos seront visibles par toute la famille 🎉</p>
+      </div>
+
+      {/* ── Galerie ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <h3 style={{ fontWeight: 700, margin: 0, color: '#1f2937' }}>🖼️ Galerie de la chasse</h3>
+        <button onClick={() => { setLoadingGal(true); loadGallery(); }}
+          style={{ background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '8px', padding: '6px 12px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
+          ↻ Actualiser
+        </button>
+      </div>
+
+      {loadingGal ? (
+        <p style={{ color: '#9ca3af', textAlign: 'center', padding: '30px 0' }}>Chargement…</p>
+      ) : gallery.length === 0 ? (
+        <div style={{ background: 'white', borderRadius: '12px', padding: '40px', textAlign: 'center', color: '#9ca3af', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: '48px', marginBottom: '10px' }}>📷</div>
+          <p style={{ margin: 0, fontWeight: 600 }}>Aucune photo pour l'instant</p>
+          <p style={{ margin: '6px 0 0', fontSize: '13px' }}>Soyez les premiers à partager !</p>
+        </div>
+      ) : (
+        <div>
+          {Object.entries(groups).map(([groupName, items]) => (
+            <div key={groupName} style={{ marginBottom: '24px' }}>
+              <h4 style={{ fontWeight: 700, color: '#4f46e5', marginBottom: '12px', fontSize: '15px' }}>
+                {groupName}
+                <span style={{ fontWeight: 400, color: '#9ca3af', fontSize: '13px', marginLeft: '8px' }}>
+                  — {items.length} média{items.length > 1 ? 's' : ''}
+                </span>
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: '10px' }}>
+                {items.map(m => (
+                  <div key={m._id} style={{ background: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    {m.resourceType === 'video' ? (
+                      <video src={m.url} controls style={{ width: '100%', height: '150px', objectFit: 'cover', display: 'block' }} />
+                    ) : (
+                      <a href={m.url} target="_blank" rel="noreferrer">
+                        <img
+                          src={m.url.replace('/upload/', '/upload/w_400,q_auto/')}
+                          alt=""
+                          style={{ width: '100%', height: '150px', objectFit: 'cover', display: 'block' }}
+                        />
+                      </a>
+                    )}
+                    <div style={{ padding: '6px 10px' }}>
+                      {m.stageLabel && (
+                        <p style={{ fontSize: '11px', color: '#6b7280', margin: '0 0 2px', fontWeight: 600 }}>📍 {m.stageLabel}</p>
+                      )}
+                      <p style={{ fontSize: '11px', color: '#9ca3af', margin: 0 }}>
+                        {new Date(m.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2560,13 +2732,22 @@ function AdminHuntTab({ token }) {
             </div>
           ) : (
             <div>
-              {/* Grouper par équipe */}
-              {[...new Set(gallery.map(m => m.teamName))].map(tName => {
-                const teamMedia = gallery.filter(m => m.teamName === tName);
+              {/* Grouper : équipes par teamName, famille par uploaderName */}
+              {(() => {
+                const groups = {};
+                gallery.forEach(m => {
+                  const key = m.uploadedBy === 'viewer'
+                    ? '📸 ' + (m.uploaderName || 'Famille')
+                    : '👥 ' + (m.teamName || 'Équipe');
+                  if (!groups[key]) groups[key] = [];
+                  groups[key].push(m);
+                });
+                return Object.entries(groups);
+              })().map(([groupName, teamMedia]) => {
                 return (
-                  <div key={tName} style={{ marginBottom: '24px' }}>
+                  <div key={groupName} style={{ marginBottom: '24px' }}>
                     <h4 style={{ fontWeight: 700, color: '#4f46e5', marginBottom: '12px', fontSize: '16px' }}>
-                      👥 {tName} — {teamMedia.length} média{teamMedia.length > 1 ? 's' : ''}
+                      {groupName} — {teamMedia.length} média{teamMedia.length > 1 ? 's' : ''}
                     </h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
                       {teamMedia.map(m => (
