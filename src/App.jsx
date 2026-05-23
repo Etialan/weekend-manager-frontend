@@ -1788,7 +1788,15 @@ function TeamApp({ token, teamName, onLogout }) {
     try {
       setNetworkError(null);
       const r = await fetch(API_URL + '/hunt/team/me', { headers: th });
-      if (!r.ok) { setView('error'); return; }
+      if (!r.ok) {
+        if (r.status === 401 || r.status === 403) {
+          // Token expiré/invalide → retour à l'écran de connexion équipe
+          onLogout();
+        } else {
+          setNetworkError('Erreur serveur (' + r.status + ')');
+        }
+        return;
+      }
       const data = await r.json();
       setState(data);
       if (data.hunt.status === 'idle') { setView('waiting'); return; }
