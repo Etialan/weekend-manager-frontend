@@ -1713,8 +1713,9 @@ function MediaBtn({ uploading, uploadStatus, uploadError, uploadedMedia, onUploa
 
 function TeamApp({ token, teamName, onLogout }) {
   const [state, setState] = useState(null);
-  const [hintData, setHintData] = useState(null);       // { label, gpsLat, gpsLng } une fois révélé
+  const [hintData, setHintData] = useState(null);        // { answer } ou { label, gpsLat, gpsLng }
   const [hintConfirm, setHintConfirm] = useState(false); // affiche la confirmation avant d'appeler
+  const [hintMode, setHintMode] = useState('answer');    // 'answer' | 'gps'
   const [view, setView] = useState('loading');
   const [gpsError, setGpsError] = useState(null);
   const [position, setPosition] = useState(null);
@@ -1838,6 +1839,7 @@ function TeamApp({ token, teamName, onLogout }) {
                     question: data.question,
                   },
                 }));
+                setHintData(null); setHintConfirm(false);
                 setView('activite');
               } else { sent = false; }
             } catch (_) { sent = false; }
@@ -1887,6 +1889,7 @@ function TeamApp({ token, teamName, onLogout }) {
       const r = await fetch(API_URL + '/hunt/team/hint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ mode: hintMode }),
       });
       if (r.ok) setHintData(await r.json());
     } catch (e) {}
@@ -1983,6 +1986,43 @@ function TeamApp({ token, teamName, onLogout }) {
           </div>
         )}
         <MediaBtn uploading={uploading} uploadStatus={uploadStatus} uploadError={uploadError} uploadedMedia={uploadedMedia} onUpload={handleMediaUpload} />
+
+        {/* ── Indice GPS (pénalité) ── */}
+        {!hintData && !hintConfirm && (
+          <button onClick={() => { setHintMode('gps'); setHintConfirm(true); }}
+            style={{ width: '100%', marginTop: '10px', padding: '11px', fontSize: '14px', fontWeight: 600, background: 'transparent', color: '#9ca3af', border: '1.5px dashed #d1d5db', borderRadius: '10px', cursor: 'pointer' }}>
+            🆘 Je suis perdu(e) — voir le GPS
+          </button>
+        )}
+        {hintConfirm && !hintData && (
+          <div style={{ background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '10px', padding: '14px', marginTop: '10px' }}>
+            <p style={{ margin: '0 0 10px', fontSize: '14px', color: '#991b1b', fontWeight: 600, textAlign: 'center' }}>
+              ⚠️ Cette action révèle les coordonnées GPS de l'étape.<br />
+              <span style={{ fontWeight: 400 }}>Une pénalité sera enregistrée pour votre équipe.</span>
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={handleHint}
+                style={{ flex: 1, padding: '10px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}>
+                Oui, révéler 🔓
+              </button>
+              <button onClick={() => setHintConfirm(false)}
+                style={{ flex: 1, padding: '10px', background: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '14px', cursor: 'pointer' }}>
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+        {hintData && hintData.gpsLat && (
+          <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginTop: '10px' }}>
+            <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>🆘 GPS dévoilé — pénalité enregistrée</p>
+            <p style={{ margin: '0 0 10px', fontSize: '15px', fontWeight: 700, color: '#78350f' }}>📍 {hintData.label}</p>
+            <a href={`https://maps.google.com/?q=${hintData.gpsLat},${hintData.gpsLng}`} target="_blank" rel="noreferrer"
+              style={{ display: 'block', background: '#f59e0b', color: 'white', borderRadius: '8px', padding: '10px', textAlign: 'center', fontWeight: 700, fontSize: '14px', textDecoration: 'none' }}>
+              🗺️ Ouvrir dans Google Maps
+            </a>
+          </div>
+        )}
+
         <button style={btn('#6b7280', '8px')} onClick={onLogout}>Déconnexion</button>
       </div>
     </div>
@@ -2061,18 +2101,17 @@ function TeamApp({ token, teamName, onLogout }) {
             {submitting ? '…' : 'Valider ✓'}
           </button>
 
-          {/* ── Hint / solution avec pénalité ── */}
+          {/* ── Indice réponse (pénalité) ── */}
           {!hintData && !hintConfirm && (
-            <button onClick={() => setHintConfirm(true)}
+            <button onClick={() => { setHintMode('answer'); setHintConfirm(true); }}
               style={{ width: '100%', marginTop: '10px', padding: '11px', fontSize: '14px', fontWeight: 600, background: 'transparent', color: '#9ca3af', border: '1.5px dashed #d1d5db', borderRadius: '10px', cursor: 'pointer' }}>
-              🆘 Je suis bloqué(e) — voir la solution
+              🆘 Je suis bloqué(e) — voir la réponse
             </button>
           )}
-
           {hintConfirm && !hintData && (
             <div style={{ background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '10px', padding: '14px', marginTop: '10px' }}>
               <p style={{ margin: '0 0 10px', fontSize: '14px', color: '#991b1b', fontWeight: 600, textAlign: 'center' }}>
-                ⚠️ Cette action révèle le nom et les coordonnées GPS de l'étape.<br />
+                ⚠️ Cette action révèle la réponse à la question.<br />
                 <span style={{ fontWeight: 400 }}>Une pénalité sera enregistrée pour votre équipe.</span>
               </p>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -2087,17 +2126,12 @@ function TeamApp({ token, teamName, onLogout }) {
               </div>
             </div>
           )}
-
-          {hintData && (
+          {hintData && hintData.answer && (
             <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: '10px', padding: '14px', marginTop: '10px' }}>
-              <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>🆘 Solution dévoilée — pénalité enregistrée</p>
-              <p style={{ margin: '0 0 8px', fontSize: '16px', fontWeight: 700, color: '#78350f' }}>📍 {hintData.label}</p>
-              {hintData.gpsLat && hintData.gpsLng && (
-                <a href={`https://maps.google.com/?q=${hintData.gpsLat},${hintData.gpsLng}`} target="_blank" rel="noreferrer"
-                  style={{ display: 'block', background: '#f59e0b', color: 'white', borderRadius: '8px', padding: '10px', textAlign: 'center', fontWeight: 700, fontSize: '14px', textDecoration: 'none' }}>
-                  🗺️ Ouvrir dans Google Maps
-                </a>
-              )}
+              <p style={{ margin: '0 0 6px', fontSize: '12px', fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>🆘 Réponse dévoilée — pénalité enregistrée</p>
+              <p style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#78350f', textAlign: 'center', letterSpacing: '0.04em' }}>
+                {hintData.answer}
+              </p>
             </div>
           )}
         </div>
