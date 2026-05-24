@@ -1802,7 +1802,12 @@ function TeamApp({ token, teamName, onLogout }) {
       if (data.hunt.status === 'idle') { setView('waiting'); return; }
       if (data.team.status === 'finished') { setView('finished'); return; }
       if (!data.currentStage) { setView('finished'); return; }
-      setView(data.currentStage.hasArrived ? 'activite' : 'enroute');
+      // Ne jamais rétrograder depuis 'activite' vers 'enroute' via le polling
+      // (l'arrivée est définitive, seul handleContinue change d'étape)
+      setView(v => {
+        if (v === 'activite' && !data.currentStage.hasArrived) return v;
+        return data.currentStage.hasArrived ? 'activite' : 'enroute';
+      });
     } catch (e) {
       setNetworkError(e.message);
     }
