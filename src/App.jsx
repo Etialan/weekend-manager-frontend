@@ -1468,7 +1468,7 @@ function ViewerGalleryTab() {
 
   const [gallery, setGallery] = React.useState([]);
   const [loadingGal, setLoadingGal] = React.useState(true);
-  const [uploading, setUploading] = React.useState(false);
+  const [uploadProgress, setUploadProgress] = React.useState(null); // null | { done, total }
   const [uploadError, setUploadError] = React.useState('');
   const [uploadStatus, setUploadStatus] = React.useState(null); // 'ok' | 'error' | null
   const [uploaderName, setUploaderName] = React.useState(
@@ -1487,41 +1487,47 @@ function ViewerGalleryTab() {
   React.useEffect(() => { loadGallery(); }, []);
 
   const handleUpload = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
     if (!uploaderName.trim()) { setUploadError('Entrez votre prénom'); return; }
-    if (file.size > 50 * 1024 * 1024) { setUploadError('Fichier trop volumineux (max 50 MB)'); return; }
-    setUploading(true); setUploadError(''); setUploadStatus(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('upload_preset', CLD_PRESET);
-      const cldRes = await fetch(
-        'https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/auto/upload',
-        { method: 'POST', body: fd }
-      );
-      if (!cldRes.ok) throw new Error('Échec upload Cloudinary');
-      const cld = await cldRes.json();
-      const r = await fetch(API_URL + '/hunt/viewer/media', {
-        method: 'POST',
-        headers: authH,
-        body: JSON.stringify({
-          url: cld.secure_url,
-          publicId: cld.public_id,
-          resourceType: cld.resource_type,
-          uploaderName: uploaderName.trim(),
-        }),
-      });
-      if (r.ok) {
-        setUploadStatus('ok');
-        localStorage.setItem('galleryUploaderName', uploaderName.trim());
-        await loadGallery();
-      } else { throw new Error('Erreur serveur'); }
-    } catch (err) {
-      setUploadError(err.message);
-      setUploadStatus('error');
+    setUploadError(''); setUploadStatus(null);
+    setUploadProgress({ done: 0, total: files.length });
+    localStorage.setItem('galleryUploaderName', uploaderName.trim());
+    let errors = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        if (file.size > 50 * 1024 * 1024) throw new Error(`${file.name} trop volumineux (max 50 MB)`);
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('upload_preset', CLD_PRESET);
+        const cldRes = await fetch(
+          'https://api.cloudinary.com/v1_1/' + CLD_CLOUD + '/auto/upload',
+          { method: 'POST', body: fd }
+        );
+        if (!cldRes.ok) throw new Error(`Échec upload Cloudinary pour ${file.name}`);
+        const cld = await cldRes.json();
+        const r = await fetch(API_URL + '/hunt/viewer/media', {
+          method: 'POST',
+          headers: authH,
+          body: JSON.stringify({
+            url: cld.secure_url,
+            publicId: cld.public_id,
+            resourceType: cld.resource_type,
+            uploaderName: uploaderName.trim(),
+          }),
+        });
+        if (!r.ok) throw new Error(`Erreur serveur pour ${file.name}`);
+      } catch (err) {
+        errors++;
+        setUploadError(err.message);
+      }
+      setUploadProgress({ done: i + 1, total: files.length });
     }
-    setUploading(false);
+    setUploadProgress(null);
+    setUploadStatus(errors === 0 ? 'ok' : 'error');
+    if (errors === 0) await loadGallery();
+    else await loadGallery(); // recharge quand même pour afficher ceux qui ont réussi
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -1550,22 +1556,24 @@ function ViewerGalleryTab() {
           />
           <button
             onClick={() => { setUploadStatus(null); setUploadError(''); fileRef.current && fileRef.current.click(); }}
-            disabled={uploading || !uploaderName.trim()}
+            disabled={!!uploadProgress || !uploaderName.trim()}
             style={{
               padding: '10px 18px',
-              background: uploading || !uploaderName.trim() ? '#e5e7eb' : '#7c3aed',
-              color: uploading || !uploaderName.trim() ? '#9ca3af' : 'white',
+              background: uploadProgress || !uploaderName.trim() ? '#e5e7eb' : '#7c3aed',
+              color: uploadProgress || !uploaderName.trim() ? '#9ca3af' : 'white',
               border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '14px',
-              cursor: uploading || !uploaderName.trim() ? 'not-allowed' : 'pointer',
+              cursor: uploadProgress || !uploaderName.trim() ? 'not-allowed' : 'pointer',
               whiteSpace: 'nowrap',
             }}
           >
-            {uploading ? '⏳ Envoi…' : '📷 Ajouter une photo / vidéo'}
+            {uploadProgress
+              ? `⏳ ${uploadProgress.done} / ${uploadProgress.total}…`
+              : '📷 Ajouter des photos / vidéos'}
           </button>
-          <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleUpload} />
+          <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleUpload} />
         </div>
         {uploadError && <p style={{ color: '#dc2626', margin: '0 0 6px', fontSize: '13px' }}>❌ {uploadError}</p>}
-        {uploadStatus === 'ok' && <p style={{ color: '#059669', margin: '0 0 6px', fontSize: '13px' }}>✅ Photo ajoutée à la galerie !</p>}
+        {uploadStatus === 'ok' && <p style={{ color: '#059669', margin: '0 0 6px', fontSize: '13px' }}>✅ Photos ajoutées à la galerie !</p>}
         <p style={{ color: '#9ca3af', fontSize: '12px', margin: 0 }}>Vos photos seront visibles par toute la famille 🎉</p>
       </div>
 
